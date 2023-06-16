@@ -1,0 +1,41 @@
+* GIS migration from MySQL to TiDB
+  + Table conversion
+  + Application conversion
+    - Query conversion
+    - Query -> App conversion
+  + Performance
+* GEO Table in the MySQL
+** DDL preparation
+#+BEGIN_SRC
+MySQL [test] > create table test.gis_table(id bigint primary key, name varchar(32) not null, position point);
+#+END_SRC
+
+** Test data generation - todo
+geo generate-mysql -h localhost -P 3306 -u mysqluser -p1234Abcd -n 1000 
+
+** Check Query and performance 
+#+BEGIN_SRC
+MySQL$ SELECT id, name, st_distance(point(20.445665, 140.505548), position)*111195 as distance 
+FROM test.gis_table where position is not null and st_distance(point(20.445665, 140.505548)*position)*111195 <= 1000000000 order by distance;
+#+END_SRC
+
+* Migration
+** DDL migration
+#+BEGIN_SRC
+TiDB [test] > create table test.gis_table(id bigint primary key, name varchar(32) not null, lat float, lng float);
+#+END_SRC
+
+** App migration
+*** Query migration
+#+BEGIN_SRC
+TiDB [test] > To add
+#+END_SRC
+
+*** Query to APP conversion
+... ...
+
+** Comparison
+*** Value comparison
+Check the data whether is same
+*** Performance comparison
+Check the performance between TiDB and MySQL
