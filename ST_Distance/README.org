@@ -39,3 +39,13 @@ TiDB [test] > To add
 Check the data whether is same
 *** Performance comparison
 Check the performance between TiDB and MySQL
+
+* TODO
+  + Added arguments
+    - db host
+    - db type 
+    - db port 
+    - db user 
+    - db password
+    - number rows
+  + Generate rows into mysql
