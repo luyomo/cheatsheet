@@ -49,3 +49,6 @@ Check the performance between TiDB and MySQL
     - db password
     - number rows
   + Generate rows into mysql
+* Reference
+https://medium.com/sysf/playing-with-geometry-spatial-data-type-in-mysql-645b83880331
+https://www.cnblogs.com/nanahome/p/14353407.html
