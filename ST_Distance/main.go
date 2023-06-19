@@ -37,17 +37,14 @@ func main() {
             SilenceErrors: true,
             Version:       "0.0.1",
             PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-                fmt.Printf("Starting to run PersistentPreRunE \n")
+                //fmt.Printf("Starting to run PersistentPreRunE \n")
                 return nil
             },
             PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-                fmt.Printf("Calling PersistentPostRunE \n")
+                // fmt.Printf("Calling PersistentPostRunE \n")
                     // proxy.MaybeStopProxy()
                     // return tiupmeta.GlobalEnv().V1Repository().Mirror().Close()
                 return nil
-            },
-            Run: func(cmd *cobra.Command, args []string) {
-                fmt.Printf("Calling func")
             },
     }
     rootCmd.PersistentFlags().StringVar(&gOpt.dbType, "db-type", "TiDB", "db type(TiDB or MySQL)")
@@ -56,6 +53,11 @@ func main() {
     rootCmd.PersistentFlags().StringVar(&gOpt.dbName, "db-name", "test", "db name to test")
     rootCmd.PersistentFlags().StringVar(&gOpt.dbPassword, "password", "", "password to connecto to db")
     rootCmd.PersistentFlags().IntVar(&gOpt.dbPort, "port", 3306, "db port")
+    rootCmd.PersistentFlags().StringVar(&gOpt.tiHost, "ti-host", "127.0.0.1", "tidb db host")
+    rootCmd.PersistentFlags().StringVar(&gOpt.tiUser, "ti-user", "root", "tidb db user")
+    rootCmd.PersistentFlags().StringVar(&gOpt.tiName, "ti-db-name", "test", "tidb db name to test")
+    rootCmd.PersistentFlags().StringVar(&gOpt.tiPassword, "ti-password", "", "tidb password to connecto to db")
+    rootCmd.PersistentFlags().IntVar(&gOpt.tiPort, "ti-port", 4000, "tidb db port")
     rootCmd.PersistentFlags().Int64Var(&gOpt.numRows, "num-rows", 1000, "number of rows to generate")
 
     // Data comparison
@@ -104,6 +106,20 @@ func main() {
     }
     rootCmd.AddCommand(cmd)
 
+    cmd = &cobra.Command{
+            Use:          "comp-data-tidb-mysql",
+            Short:        "Compare query between tidb and mysql",
+            Long:         "Compare query executed in the tidb and mysql to verify the difference",
+            SilenceUsage: true,
+            RunE: func(cmd *cobra.Command, args []string) error {
+                if err := compDataTiDBMySQL(); err != nil {
+                    return err
+                }
+                return nil
+            },
+    }
+    rootCmd.AddCommand(cmd)
+
     if err := rootCmd.Execute(); err != nil {
         panic(err)
     }
@@ -118,6 +134,11 @@ type Args struct {
     dbName     string
     dbUser     string
     dbPassword string
+    tiHost     string
+    tiPort     int
+    tiName     string
+    tiUser     string
+    tiPassword string
     numRows    int64
 }
 
@@ -141,7 +162,7 @@ func dataComp() error {
         if err != nil {
             return err
         }
-        dis05, err :=  earthDistanceFromMySQLQuery(&gOpt, lat01, lng01, lat02, lng02)
+        dis05, err :=  earthDistanceFromMySQLQuery("mysql", lat01, lng01, lat02, lng02)
         if err != nil {
             return err
         }
@@ -171,6 +192,34 @@ func dataComp() error {
     return nil
 }
 
+func compDataTiDBMySQL() error {
+    var tableComp [][]string
+    tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince" , "golang", "query"})
+
+    var compRes [][]string
+    compRes = append(compRes, []string{"Source Point", "Dest Point", "Distince from MySQL Query", "Distince from TiDB Query", "Diff between MySQL and TiDB"})
+
+    for num :=0; num < 10; num++{
+        lat01, lng01 := getPoint(20, 24, 136, 154)
+        lat02, lng02 := getPoint(20, 24, 136, 154)
+
+        // Run from query
+        dis05, err := earthDistanceFromMySQLQuery("mysql", lat01, lng01, lat02, lng02)
+        if err != nil {
+            return err
+        }
+        dis06, err := earthDistanceFromMySQLQuery("tidb", lat01, lng01, lat02, lng02)
+        if err != nil {
+            return err
+        }
+
+        compRes = append(compRes, []string{fmt.Sprintf("(%f, %f)", lat01, lng01), fmt.Sprintf("(%f, %f)", lat02, lng02), fmt.Sprintf("%f", dis05), fmt.Sprintf("%f", dis06), fmt.Sprintf("%f", dis06 - dis05)})
+    }
+
+    tui.PrintTable(compRes, true)
+
+    return nil
+}
 
 func earthDistanceFromMySQL(args *Args, lat1, lng1, lat2, lng2 float64) (float64, error){
    db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
@@ -204,41 +253,43 @@ func earthDistanceFromMySQL(args *Args, lat1, lng1, lat2, lng2 float64) (float64
     return 0, nil
 }
 
-func earthDistanceFromMySQLQuery(args *Args, lat1, lng1, lat2, lng2 float64) (float64, error){
-   // db, err := sql.Open("mysql", fmt.Sprintf("mysqluser:1234Abcd@tcp(127.0.0.1:3306)/test", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
-   db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
+func earthDistanceFromMySQLQuery(dbType string, lat1, lng1, lat2, lng2 float64) (float64, error){
+    var db *sql.DB
+    var err error
 
-   // if there is an error opening the connection, handle it
-   if err != nil {
-       return 0, err
-   }
-
-   // defer the close till after the main function has finished
-   // executing
-   defer db.Close()
-
-   // results, err := db.Query(fmt.Sprintf("SELECT ST_Distance_Sphere(Point(%f,%f), Point(%f,%f));", lng1, lat1, lng2, lat2 ) )
-   results, err := db.Query(fmt.Sprintf("select ROUND(6378.138*2*ASIN(SQRT(POW(SIN((%f*PI()/180-%f*PI()/180)/2),2)+COS(%f*PI()/180)*COS(%f*PI()/180)*POW(SIN((%f*PI()/180-%f*PI()/180)/2),2)))*1000) AS distance", lat1, lat2, lat1, lat2, lng1, lng2 ) )
-   if err != nil {
-       return 0, err
-   }
-
-   for results.Next() {
-        var _result float64
-        // for each row, scan the result into our tag composite object
-        err = results.Scan(&_result)
-        if err != nil {
-            return 0, err
-        }
-        return _result, nil
-        // and then print out the tag's Name attribute
-        //fmt.Printf("Getting: %f \n", _result)
+    if dbType == "mysql" {
+        db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", gOpt.dbUser, gOpt.dbPassword, gOpt.dbHost, gOpt.dbPort, gOpt.dbName  ) )
+    } else {
+        db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", gOpt.tiUser, gOpt.tiPassword, gOpt.tiHost, gOpt.tiPort, gOpt.tiName  ) )
     }
-    return 0, nil
+
+    // if there is an error opening the connection, handle it
+    if err != nil {
+        return 0, err
+    }
+
+    // defer the close till after the main function has finished
+    // executing
+    defer db.Close()
+
+    results, err := db.Query(fmt.Sprintf("select ROUND(6378.138*2*ASIN(SQRT(POW(SIN((%f*PI()/180-%f*PI()/180)/2),2)+COS(%f*PI()/180)*COS(%f*PI()/180)*POW(SIN((%f*PI()/180-%f*PI()/180)/2),2)))*1000) AS distance", lat1, lat2, lat1, lat2, lng1, lng2 ) )
+    if err != nil {
+        return 0, err
+    }
+
+    for results.Next() {
+         var _result float64
+         // for each row, scan the result into our tag composite object
+         err = results.Scan(&_result)
+         if err != nil {
+             return 0, err
+         }
+         return _result, nil
+     }
+     return 0, nil
 }
 
 func earthDistanceFromTiDB(args *Args, lat1, lng1, lat2, lng2 float64) (float64, error){
-   // db, err := sql.Open("mysql", fmt.Sprintf("mysqluser:1234Abcd@tcp(127.0.0.1:3306)/test", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
    db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
 
    // if there is an error opening the connection, handle it

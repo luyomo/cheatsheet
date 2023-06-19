@@ -1,6 +1,28 @@
 * GIS migration from MySQL to TiDB
-  + Table conversion
+** Table conversion
+    - MySQL
+      #+BEGIN_SRC
+CREATE TABLE IF NOT EXISTS gis_table (                                                                                                                          
+   id bigint(20) NOT NULL,
+   name varchar(32) NOT NULL,
+   position point DEFAULT NULL,
+   PRIMARY KEY (id)
+)
+      #+END_SRC
+    - TiDB
+      #+BEGIN_SRC
+CREATE TABLE IF NOT EXISTS gis_table (                                                                                                                          
+   id bigint(20) NOT NULL,
+   name varchar(32) NOT NULL,
+   point_lat float,
+   point_lng float,
+   PRIMARY KEY (id)
+)
+      #+END_SRC
   + Application conversion
+In the MySQL, there are two functions to calculate the distince between point. One is st_stance, another is st_stance_sphere. As for the difference, please refere to below link. 
+    - https://medium.com/sysf/playing-with-geometry-spatial-data-type-in-mysql-645b83880331
+    https://www.cnblogs.com/nanahome/p/14353407.html
     - Query conversion
     - Query -> App conversion
   + Performance
@@ -50,5 +72,3 @@ Check the performance between TiDB and MySQL
     - number rows
   + Generate rows into mysql
 * Reference
-https://medium.com/sysf/playing-with-geometry-spatial-data-type-in-mysql-645b83880331
-https://www.cnblogs.com/nanahome/p/14353407.html
