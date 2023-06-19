@@ -10,9 +10,6 @@ import (
    _ "github.com/go-sql-driver/mysql"
    "github.com/pingcap/tiup/pkg/tui"
    "github.com/spf13/cobra"
-
-   "flag"
-
 )
 
 // https://www.gsi.go.jp/KOKUJYOHO/center.htm
@@ -22,6 +19,7 @@ import (
 
 // SELECT xxx,st_distance($geo,geo)*111195 as distance FROM `$schema` WHERE  geo is not null and st_distance($geo,geo)*111195 <= :distance order by distance
 // create table test.gis_table(id bigint primary key, name varchar(32) not null, position point)
+// SELECT st_distance(point(1,1000),position)*111195 as distance FROM gis_table WHERE position is not null and st_distance(point(1, 1000),position)*111195 <= 1000 order by distance
 
 var gOpt Args
 
@@ -60,65 +58,50 @@ func main() {
     rootCmd.PersistentFlags().IntVar(&gOpt.dbPort, "port", 3306, "db port")
     rootCmd.PersistentFlags().Int64Var(&gOpt.numRows, "num-rows", 1000, "number of rows to generate")
 
+    // Data comparison
     cmd := &cobra.Command{
-            Use:          "test",
-            Short:        "test",
-            Long:         "test",
+            Use:          "data-comp",
+            Short:        "compare different sphere distance calculation",
+            Long:         "compare the calculation between st_distance, st_distace_sphere, golang implementation and query",
             SilenceUsage: true,
             RunE: func(cmd *cobra.Command, args []string) error {
-                fmt.Printf("Calling the function. \n")
-                var tableComp [][]string
-                tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince" , "golang", "query"})
-
-                fmt.Printf("The args are <%#v> \n", args)
-
-                for num :=0; num < 10; num++{
-                    lat01, lng01 := getPoint(20, 24, 136, 154)
-                    fmt.Printf("Point: %f, %f \n", lat01, lng01)
-                    lat02, lng02 := getPoint(20, 24, 136, 154)
-                    fmt.Printf("Point: %f, %f \n", lat02, lng02)
-
-                    dis01 := EarthDistance(lat01, lng01, lat02, lng02)
-                    // fmt.Println(EarthDistance(lat1, lng1, lat2, lng2))
-
-                    dis02, err := earthDistanceFromMySQL(&gOpt, lat01, lng01, lat02, lng02)
-                    if err != nil {
-                        panic(err)
-                    }
-                    dis03, err := earthDistanceFromMySQL02(&gOpt, lat01, lng01, lat02, lng02)
-                    if err != nil {
-                        panic(err)
-                    }
-                    dis05, err :=  earthDistanceFromMySQLQuery(&gOpt, lat01, lng01, lat02, lng02)
-                    if err != nil {
-                        panic(err)
-                    }
-                    // dis04, err := earthDistanceFromTiDB(args, lat01, lng01, lat02, lng02)
-                    // if err != nil {
-                    //     panic(err)
-                    // }
-
-                    fmt.Printf("Distince from calculation: %f \n", dis01)
-                    // fmt.Printf("Distince from TiDB calculation: %f \n", dis04)
-                    fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis02, dis02 - dis01, 100 * math.Abs(dis02 - dis01)/dis01)
-                    fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis03, dis03 - dis01, 100 * math.Abs(dis03 - dis01)/dis01)
-
-                    // fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis02, dis02 - dis04, 100 * math.Abs(dis02 - dis04)/dis04)
-                    // fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis03, dis03 - dis04, 100 * math.Abs(dis03 - dis04)/dis04)
-
-                    tableComp = append(tableComp, []string{fmt.Sprintf("(%f, %f)", lat01, lng01), fmt.Sprintf("(%f, %f)", lat02, lng02),
-                        fmt.Sprintf("%f", dis02), fmt.Sprintf("%f", dis03), fmt.Sprintf("%f", dis01), fmt.Sprintf("%f", dis05),
-                        fmt.Sprintf("%f", 100 * math.Abs(dis02 - dis03)/dis03),
-                        fmt.Sprintf("%f", 100 * math.Abs(dis01 - dis03)/dis03),
-                        fmt.Sprintf("%f", 100 * math.Abs(dis05 - dis03)/dis03),
-                    })
+                if err := dataComp(); err != nil {
+                    return err
                 }
-
-                tui.PrintTable(tableComp, true)
                 return nil
             },
     }
 
+    rootCmd.AddCommand(cmd)
+
+    // Data generation into table
+    cmd = &cobra.Command{
+            Use:          "gen-data",
+            Short:        "generate data into mysql",
+            Long:         "generate data of point into mysql",
+            SilenceUsage: true,
+            RunE: func(cmd *cobra.Command, args []string) error {
+                if err := genData(); err != nil {
+                    return err
+                }
+                return nil
+            },
+    }
+    rootCmd.AddCommand(cmd)
+
+    // Generate one select query
+    cmd = &cobra.Command{
+            Use:          "gen-query",
+            Short:        "generate origin query to check the performance",
+            Long:         "generate the query which use st_distince to check running time",
+            SilenceUsage: true,
+            RunE: func(cmd *cobra.Command, args []string) error {
+                if err := genMySQLQuery(); err != nil {
+                    return err
+                }
+                return nil
+            },
+    }
     rootCmd.AddCommand(cmd)
 
     if err := rootCmd.Execute(); err != nil {
@@ -126,12 +109,6 @@ func main() {
     }
 
     return
-
-    //args, err := readArgs()
-    //if err != nil {
-    //    panic(err)
-    //}
-
 }
 
 type Args struct {
@@ -144,37 +121,58 @@ type Args struct {
     numRows    int64
 }
 
-func readArgs() (*Args, error) {
-     var args Args
-     flag.StringVar(&args.dbType, "db-type", "TiDB", "db type(TiDB or MySQL)")
-     flag.StringVar(&args.dbHost, "host", "127.0.0.1", "db host")
-     flag.StringVar(&args.dbUser, "user", "root", "db user")
-     flag.StringVar(&args.dbName, "db-name", "test", "db name to test")
-     flag.StringVar(&args.dbPassword, "password", "", "password to connecto to db")
-     flag.IntVar(&args.dbPort, "port", 3306, "db port")
-     flag.Int64Var(&args.numRows, "num-rows", 1000, "number of rows to generate")
+func dataComp() error {
+    var tableComp [][]string
+    tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince" , "golang", "query"})
 
-    // // This declares `numb` and `fork` flags, using a
-    // // similar approach to the `word` flag.
-    // numbPtr := flag.Int("numb", 42, "an int")
-    // boolPtr := flag.Bool("fork", false, "a bool")
+    for num :=0; num < 10; num++{
+        lat01, lng01 := getPoint(20, 24, 136, 154)
+        fmt.Printf("Point: %f, %f \n", lat01, lng01)
+        lat02, lng02 := getPoint(20, 24, 136, 154)
+        fmt.Printf("Point: %f, %f \n", lat02, lng02)
 
-    // // It's also possible to declare an option that uses an
-    // // existing var declared elsewhere in the program.
-    // // Note that we need to pass in a pointer to the flag
-    // // declaration function.
-    // var svar string
-    // flag.StringVar(&svar, "svar", "bar", "a string var")
+        dis01 := EarthDistance(lat01, lng01, lat02, lng02)
 
-    // Once all flags are declared, call `flag.Parse()`
-    // to execute the command-line parsing.
-    flag.Parse()
+        dis02, err := earthDistanceFromMySQL(&gOpt, lat01, lng01, lat02, lng02)
+        if err != nil {
+            return err
+        }
+        dis03, err := earthDistanceFromMySQL02(&gOpt, lat01, lng01, lat02, lng02)
+        if err != nil {
+            return err
+        }
+        dis05, err :=  earthDistanceFromMySQLQuery(&gOpt, lat01, lng01, lat02, lng02)
+        if err != nil {
+            return err
+        }
+        // dis04, err := earthDistanceFromTiDB(args, lat01, lng01, lat02, lng02)
+        // if err != nil {
+        //     panic(err)
+        // }
 
-    return &args, nil
+        fmt.Printf("Distince from calculation: %f \n", dis01)
+        // fmt.Printf("Distince from TiDB calculation: %f \n", dis04)
+        fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis02, dis02 - dis01, 100 * math.Abs(dis02 - dis01)/dis01)
+        fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis03, dis03 - dis01, 100 * math.Abs(dis03 - dis01)/dis01)
+
+        // fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis02, dis02 - dis04, 100 * math.Abs(dis02 - dis04)/dis04)
+        // fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis03, dis03 - dis04, 100 * math.Abs(dis03 - dis04)/dis04)
+
+        tableComp = append(tableComp, []string{fmt.Sprintf("(%f, %f)", lat01, lng01), fmt.Sprintf("(%f, %f)", lat02, lng02),
+            fmt.Sprintf("%f", dis02), fmt.Sprintf("%f", dis03), fmt.Sprintf("%f", dis01), fmt.Sprintf("%f", dis05),
+            fmt.Sprintf("%f", 100 * math.Abs(dis02 - dis03)/dis03),
+            fmt.Sprintf("%f", 100 * math.Abs(dis01 - dis03)/dis03),
+            fmt.Sprintf("%f", 100 * math.Abs(dis05 - dis03)/dis03),
+        })
+    }
+
+    tui.PrintTable(tableComp, true)
+
+    return nil
 }
 
+
 func earthDistanceFromMySQL(args *Args, lat1, lng1, lat2, lng2 float64) (float64, error){
-   // db, err := sql.Open("mysql", fmt.Sprintf("mysqluser:1234Abcd@tcp(127.0.0.1:3306)/test", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
    db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
 
    // if there is an error opening the connection, handle it
@@ -186,8 +184,8 @@ func earthDistanceFromMySQL(args *Args, lat1, lng1, lat2, lng2 float64) (float64
    // executing
    defer db.Close()
 
-   // results, err := db.Query(fmt.Sprintf("SELECT ST_Distance_Sphere(Point(%f,%f), Point(%f,%f));", lng1, lat1, lng2, lat2 ) )
-   results, err := db.Query(fmt.Sprintf("SELECT 111195*ST_Distance(Point(%f,%f), Point(%f,%f));", lng1, lat1, lng2, lat2 ) )
+   selectQuery := fmt.Sprintf("SELECT 111195*ST_Distance(Point(%f,%f), Point(%f,%f));", lng1, lat1, lng2, lat2) 
+   results, err := db.Query(selectQuery)
    if err != nil {
        return 0, err
    }
@@ -299,12 +297,94 @@ func earthDistanceFromMySQL02(args *Args, lat1, lng1, lat2, lng2 float64) (float
             return 0, err
         }
         return _result, nil
-        // and then print out the tag's Name attribute
-        //fmt.Printf("Getting: %f \n", _result)
     }
     return 0, nil
 }
 
+func genData() error{
+    createQuery := `CREATE TABLE IF NOT EXISTS gis_table (
+  id bigint(20) NOT NULL,
+  name varchar(32) NOT NULL,
+  position point DEFAULT NULL,
+  PRIMARY KEY (id)
+)`
+
+    deleteQuery := `delete from gis_table`
+    insertQuery := `insert into gis_table values(%d, 'name-%d', point(%f, %f))`
+
+    db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", gOpt.dbUser, gOpt.dbPassword, gOpt.dbHost, gOpt.dbPort, gOpt.dbName  ) )
+    // if there is an error opening the connection, handle it
+    if err != nil {
+        return err
+    }
+
+    // defer the close till after the main function has finished
+    defer db.Close()
+
+    _, err = db.Query(createQuery)
+    if err != nil {
+        return err
+    }
+
+    _, err = db.Query(deleteQuery)
+    if err != nil {
+        return err
+    }
+
+    for idx := int64(0); idx < gOpt.numRows; idx++ {
+        lat01, lng01 := getPoint(20, 24, 136, 154)
+        _, err = db.Exec(fmt.Sprintf(insertQuery, idx, idx, lng01, lat01 ) )
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+func genMySQLQuery() error {
+   // db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", args.dbUser, args.dbPassword, args.dbHost, args.dbPort, args.dbName  ) )
+
+   // if err != nil {
+   //     return 0, err
+   // }
+
+   lat01, lng01 := getPoint(20, 24, 136, 154)
+   selectQuery := `SELECT st_distance(point(%f, %f),position)*111195 as distance 
+FROM gis_table 
+WHERE position is not null 
+and st_distance(point(%f, %f),position)*111195 <= 100000 
+order by distance`
+
+   query := fmt.Sprintf(selectQuery, lat01, lng01, lat01, lng01)
+
+   var cmds [][]string
+   cmds = append(cmds, []string{"QUERY"})
+   cmds = append(cmds, []string{query})
+
+    tui.PrintTable(cmds, true)
+    return nil
+
+   // // defer the close till after the main function has finished
+   // // executing
+   // defer db.Close()
+
+   // results, err := db.Query(fmt.Sprintf("explain %s ;", query) )
+   // if err != nil {
+   //     return 0, err
+   // }
+
+   // for results.Next() {
+   //      var _result float64
+   //      // for each row, scan the result into our tag composite object
+   //      err = results.Scan(&_result)
+   //      if err != nil {
+   //          return 0, err
+   //      }
+   //      return _result, nil
+   // }
+   // return 0, nil
+}
 
 func getPoint(fromLat, toLat, fromLng, toLng float64) (float64, float64){
     s1 := rand.NewSource(time.Now().UnixNano())
@@ -318,8 +398,6 @@ func getPoint(fromLat, toLat, fromLng, toLng float64) (float64, float64){
 
 func EarthDistance(lat1, lng1, lat2, lng2 float64) float64 {
    radius := 6378137
-   // radius := 6371000 // 6378137
-   // radius := 6370980 // Tested from query
    rad := math.Pi/180.0
 
    lat1 = lat1 * rad
