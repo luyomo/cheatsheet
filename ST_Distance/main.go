@@ -144,13 +144,11 @@ type Args struct {
 
 func dataComp() error {
     var tableComp [][]string
-    tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince" , "golang", "query"})
+    tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince(*1)" , "golang(*2)", "query(*3)"})
 
     for num :=0; num < 10; num++{
         lat01, lng01 := getPoint(20, 24, 136, 154)
-        fmt.Printf("Point: %f, %f \n", lat01, lng01)
         lat02, lng02 := getPoint(20, 24, 136, 154)
-        fmt.Printf("Point: %f, %f \n", lat02, lng02)
 
         dis01 := EarthDistance(lat01, lng01, lat02, lng02)
 
@@ -166,18 +164,6 @@ func dataComp() error {
         if err != nil {
             return err
         }
-        // dis04, err := earthDistanceFromTiDB(args, lat01, lng01, lat02, lng02)
-        // if err != nil {
-        //     panic(err)
-        // }
-
-        fmt.Printf("Distince from calculation: %f \n", dis01)
-        // fmt.Printf("Distince from TiDB calculation: %f \n", dis04)
-        fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis02, dis02 - dis01, 100 * math.Abs(dis02 - dis01)/dis01)
-        fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis03, dis03 - dis01, 100 * math.Abs(dis03 - dis01)/dis01)
-
-        // fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis02, dis02 - dis04, 100 * math.Abs(dis02 - dis04)/dis04)
-        // fmt.Printf("Distince from mysql: %f and diff: %f, gosa: %f \n", dis03, dis03 - dis04, 100 * math.Abs(dis03 - dis04)/dis04)
 
         tableComp = append(tableComp, []string{fmt.Sprintf("(%f, %f)", lat01, lng01), fmt.Sprintf("(%f, %f)", lat02, lng02),
             fmt.Sprintf("%f", dis02), fmt.Sprintf("%f", dis03), fmt.Sprintf("%f", dis01), fmt.Sprintf("%f", dis05),
@@ -194,7 +180,7 @@ func dataComp() error {
 
 func compDataTiDBMySQL() error {
     var tableComp [][]string
-    tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince" , "golang", "query"})
+    tableComp = append(tableComp, []string{"point 01", "point 02", "st_distince", "st_distince_sphere", "golang", "query", "st_distince vs st_distince_sphere" , "golang vs st_distince_sphere", "query vs st_distince_sphere"})
 
     var compRes [][]string
     compRes = append(compRes, []string{"Source Point", "Dest Point", "Distince from MySQL Query", "Distince from TiDB Query", "Diff between MySQL and TiDB"})
