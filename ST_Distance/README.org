@@ -1,5 +1,26 @@
+#+OPTIONS: \n:t
+#+OPTIONS: ^:nil
+
+* Background
+  This post is to explain how to migrate gis data and query like below to TiDB:
+  #+BEGIN_SRC
+SELECT st_distance(point(21.551251, 153.976200),position)*111195 as distance 
+  FROM gis_table 
+ WHERE position is not null 
+   and st_distance(point(21.551251, 153.976200),position)*111195 <= 100000 
+  order by distance;
+  #+END_SRC
+  + Table migration
+    Since there is no gis support, the point data type has to been converted to float.
+  + Query migration
+    No st_distince support in the TiDB. The function needs to be converted to general query for same purpose.
+  + Performance
+    st_distince with function does not support index scan. After the migration, the performance will not downgrade too much.
+Please take a look more detail of the migration.
+  
 * GIS migration from MySQL to TiDB
 ** Table conversion
+   So far, TiDB does not support gis data type and function. Need to convert the point to float columns.
     - MySQL
       #+BEGIN_SRC
 CREATE TABLE IF NOT EXISTS gis_table (                                                                                                                          
@@ -19,56 +40,159 @@ CREATE TABLE IF NOT EXISTS gis_table (
    PRIMARY KEY (id)
 )
       #+END_SRC
-  + Application conversion
-In the MySQL, there are two functions to calculate the distince between point. One is st_stance, another is st_stance_sphere. As for the difference, please refere to below link. 
+** Application conversion
+In the MySQL, there are two functions to calculate the distince between points. One is st_stance, another is st_stance_sphere. As for the difference, please refere to below link.  From the articles, the st_distince_sphere is more recommendated.
     - https://medium.com/sysf/playing-with-geometry-spatial-data-type-in-mysql-645b83880331
-    https://www.cnblogs.com/nanahome/p/14353407.html
-    - Query conversion
-    - Query -> App conversion
-  + Performance
-* GEO Table in the MySQL
-** DDL preparation
-#+BEGIN_SRC
-MySQL [test] > create table test.gis_table(id bigint primary key, name varchar(32) not null, position point);
-#+END_SRC
+    - https://www.cnblogs.com/nanahome/p/14353407.html
+There are two ways to migrate the st_distance_sphere. The first way is to implement the similar logic by application, another is query migration without gis function.
 
-** Test data generation - todo
-geo generate-mysql -h localhost -P 3306 -u mysqluser -p1234Abcd -n 1000 
 
-** Check Query and performance 
-#+BEGIN_SRC
-MySQL$ SELECT id, name, st_distance(point(20.445665, 140.505548), position)*111195 as distance 
-FROM test.gis_table where position is not null and st_distance(point(20.445665, 140.505548)*position)*111195 <= 1000000000 order by distance;
-#+END_SRC
+*** Query -> App conversion
+    Another way is to implement the calculation from general appliation implementation. The whole background is same as the query logic.
+    #+BEGIN_SRC
+    radius := 6378137                                                                                                                                                                
+    rad := math.Pi/180.0                                                                                                                                                             
+                                                                                                                                                                                     
+    lat1 = lat1 * rad                                                                                                                                                                
+    lng1 = lng1 * rad                                                                                                                                                                
+    lat2 = lat2 * rad                                                                                                                                                                
+    lng2 = lng2 * rad                                                                                                                                                                
+                                                                                                                                                                                     
+    theta := lng2 - lng1                                                                                                                                                             
+    dist := math.Acos(math.Sin(lat1) * math.Sin(lat2) + math.Cos(lat1) * math.Cos(lat2) * math.Cos(theta))                                                                           
+                                                                                                                                                                                     
+    return dist * float64(radius)  
+    #+END_SRC
+*** Query conversion
+    To minimize the changes of source code, the query migration is recommended. The whole application source code will not be impacted. This is the query reference.
+    #+BEGIN_SRC
+    select ROUND(6378.138 * 2 * ASIN( SQRT( POW( SIN(({source latitude}*PI()/180 - {destination latitude}*PI()/180)/2),2) +
+               COS({source latitude}*PI()/180) * COS({destination latitude}*PI()/180)
+             * POW(SIN(({source longitude}*PI()/180-{destination longitude}*PI()/ 180)/2),2)))*1000) AS distance
+    #+END_SRC
+*** Result comparison between four approaches
+    This tool helps to evaluate the result among different approaches.
+      + st_distince
+      + st_distince_sphere
+      + golang implementation
+      + query
+    
+    | Column Name        | Comment                                                                                    |
+    |--------------------+--------------------------------------------------------------------------------------------|
+    | point 01           | Source point to calculate the distince                                                     |
+    | point 02           | Destination point to calculate the distince                                                |
+    | st_distince        | Distince calculation by st_distince: 111195*ST_Distance(Point(%f,%f), Point(%f,%f))        |
+    | st_distince_sphere | Distince calculation by st_distince_sphere: ST_Distance_Sphere(Point(%f,%f), Point(%f,%f)) |
+    | golang             | Please refer to above golang sample                                                        |
+    | query              | Please refer to above query sample                                                         |
+    | st_distince(*1)    | 100*(st_distince-st_distince_sphere)/st_distince_sphere                                    |
+    | st_golang(*2)      | 100*(golang-st_distince_sphere)/st_distince_sphere                                         |
+    | st_query(*3)       | 100*(query-st_distince_sphere)/st_distince_sphere                                          |
 
-* Migration
-** DDL migration
-#+BEGIN_SRC
-TiDB [test] > create table test.gis_table(id bigint primary key, name varchar(32) not null, lat float, lng float);
-#+END_SRC
+    #+BEGIN_SRC
+workstation$ ./gis data-comp --db-type "MySQL" --password 1234Abcd --user mysqluser
+point 01                 point 02                 st_distince    st_distince_sphere  golang         query          st_distince(*1)  golang(*2)  query(*3)
+--------                 --------                 -----------    ------------------  ------         -----          ---------------  ----------  ---------
+(23.726400, 145.473202)  (21.565526, 146.432474)  262890.454224  259658.336817       259949.751367  259950.000000  1.244758         0.112230    0.112326
+(24.852742, 151.442685)  (23.460678, 146.155589)  607934.969351  558250.531380       558877.200516  558877.000000  8.900025         0.112256    0.112220
+(22.424413, 140.196356)  (23.136081, 149.144883)  998173.223310  920671.159163       921704.528437  921705.000000  8.417996         0.112241    0.112292
+(22.465945, 144.252948)  (20.206957, 144.803145)  258531.209212  257569.209976       257858.265906  257858.000000  0.373492         0.112225    0.112121
+(21.394666, 144.067017)  (22.766362, 140.420658)  433196.709595  405476.665601       405931.833501  405932.000000  6.836409         0.112255    0.112296
+(20.139361, 149.346983)  (23.620040, 145.558459)  572066.022134  550031.843165       550649.204741  550649.000000  4.005982         0.112241    0.112204
+(22.058353, 147.227361)  (24.875531, 141.378290)  721895.576890  673713.388236       674469.545372  674470.000000  7.151734         0.112237    0.112305
+(22.657287, 153.417097)  (21.457768, 154.342588)  168466.091903  163971.314098       164155.330553  164155.000000  2.741198         0.112225    0.112023
+(24.498597, 137.853482)  (24.220795, 146.214490)  930215.320216  847366.035712       848317.131938  848317.000000  9.777272         0.112241    0.112226
+(21.859385, 154.378557)  (21.199328, 151.738441)  302603.412560  282770.247513       283087.648994  283088.000000  7.013880         0.112247    0.112371
+    #+END_SRC
+    From the test result, we can see average 5 percentage difference between st_distince and st_distince_sphere while golang/query implementation is almost same to st_distince_sphere. If the st_distince_sphere result is acceptable, the golang/query are two alternative solutions.
+*** Result comparison between MySQL and TiDB(query)
+    If the query to calculate the sphere distince is acceptable, here is the comparison between MySQL and TiDB. Since TiDB is compatible for most queries, the result are same between MySQL and TiDB.
+    + MySQL protocol version
+      #+BEGIN_SRC
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
 
-** App migration
-*** Query migration
-#+BEGIN_SRC
-TiDB [test] > To add
-#+END_SRC
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 1206
+Server version: 10.3.39-MariaDB-0+deb10u1 Debian 10
 
-*** Query to APP conversion
-... ...
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
 
-** Comparison
-*** Value comparison
-Check the data whether is same
-*** Performance comparison
-Check the performance between TiDB and MySQL
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
 
-* TODO
-  + Added arguments
-    - db host
-    - db type 
-    - db port 
-    - db user 
-    - db password
-    - number rows
-  + Generate rows into mysql
-* Reference
+MariaDB [test]> 
+
+      #+END_SRC
+    + TiDB version
+      #+BEGIN_SRC
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MySQL connection id is 669
+Server version: 5.7.25-TiDB-v7.0.0 TiDB Server (Apache License 2.0) Community Edition, MySQL 5.7 compatible
+
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MySQL [test]> 
+      #+END_SRC
+    + Data comparison
+      #+BEGIN_SRC
+workstation$ ./gis comp-data-tidb-mysql --db-type "MySQL" --password 1234Abcd --user mysqluser --ti-user root --ti-port 4000 --ti-db-name test --num-rows 10
+Source Point             Dest Point               Distince from MySQL Query  Distince from TiDB Query  Diff between MySQL and TiDB
+------------             ----------               -------------------------  ------------------------  ---------------------------
+(24.597438, 142.759852)  (20.121073, 147.938562)  729597.000000              729597.000000             0.000000
+(20.240220, 154.569125)  (24.700867, 154.657844)  496641.000000              496641.000000             0.000000
+(21.149514, 148.786497)  (23.186747, 146.503969)  326789.000000              326789.000000             0.000000
+(20.699913, 146.597376)  (22.018243, 148.673252)  260481.000000              260481.000000             0.000000
+(21.966386, 142.286278)  (23.975126, 142.675355)  227139.000000              227139.000000             0.000000
+(22.913546, 139.301825)  (22.614228, 149.855934)  1083644.000000             1083644.000000            0.000000
+(23.942566, 141.498205)  (23.508397, 147.238874)  586990.000000              586990.000000             0.000000
+(20.181970, 150.414145)  (22.586305, 153.757432)  437840.000000              437840.000000             0.000000
+(22.114335, 140.051314)  (23.539010, 138.472495)  226694.000000              226694.000000             0.000000
+(22.266495, 137.772091)  (21.299619, 150.479931)  1317628.000000             1317628.000000            0.000000
+      #+END_SRC
+** Performance
+*** Data generation in the MySQL
+    Generate 1000 test data for performance check.
+    #+BEGIN_SRC
+workstation$ ./gis gen-data --db-type "MySQL" --password 1234Abcd --user mysqluser --num-rows 1000
+MariaDB [test]> select count(*) from gis_table; 
++----------+
+| count(*) |
++----------+
+|     1000 |
++----------+
+1 row in set (0.000 sec)
+    #+END_SRC
+*** Get query for execution plan
+    #+BEGIN_SRC
+workstation$ ./gis gen-query --db-type "MySQL" --password 1234Abcd --user mysqluser
+QUERY
+-----
+SELECT st_distance(point(21.551251, 153.976200),position)*111195 as distance 
+FROM gis_table 
+WHERE position is not null 
+and st_distance(point(21.551251, 153.976200),position)*111195 <= 100000 
+order by distance
+    #+END_SRC
+*** Check the execution plan on the MySQL
+    From the execution plan, the query with gis function does not support index scan. Instead it scans the table, so the performance will not change a lot after migration to common query.
+    #+BEGIN_SRC
+MariaDB [test]> explain SELECT st_distance(point(21.551251, 153.976200),position)*111195 as distance 
+    -> FROM gis_table 
+    -> WHERE position is not null 
+    -> and st_distance(point(21.551251, 153.976200),position)*111195 <= 100000 
+    -> order by distance;
++------+-------------+-----------+------+-----------------+------+---------+------+------+-----------------------------+
+| id   | select_type | table     | type | possible_keys   | key  | key_len | ref  | rows | Extra                       |
++------+-------------+-----------+------+-----------------+------+---------+------+------+-----------------------------+
+|    1 | SIMPLE      | gis_table | ALL  | gis_table_idx01 | NULL | NULL    | NULL | 1000 | Using where; Using filesort |
++------+-------------+-----------+------+-----------------+------+---------+------+------+-----------------------------+
+1 row in set (0.000 sec)
+
+MariaDB [test]> 
+    #+END_SRC
+
