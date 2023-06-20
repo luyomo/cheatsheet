@@ -1,0 +1,2 @@
+* tidbcloud-autoscaling
+* Policy
