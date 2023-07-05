@@ -1,2 +1,28 @@
 * tidbcloud-autoscaling
+  #+BEGIN_SRC
+admin@ip-172-82-11-39:~$ export TIDBCLOUD_CLUSTER_NAME=scalingtest
+admin@ip-172-82-11-39:~$ export TIDBCLOUD_PROJECT_ID=1111813111106751111
+admin@ip-172-82-11-39:~$ ./bin/tidbcloud-autoscaling
+  #+END_SRC
+  Please find the [[https://www.youtube.com/watch?v=5XKfKTaqles][link]] for light demo.
+* Expectation
+** TiKV metrics for scaling
+*** iops
+*** cpu
+** Embed the auto-scaling into TiDB Cloud
 * Policy
+** TiDB
+   + CPU usage exceed 0.8/cpu, add level two nodes(two nodes)
+   + CPU usage exceed 0.6/cpu, add level one nodes(one node)
+   + CPU usage go down below 0.3/cpu, remove level one nodes(one node)
+   + CPU usage go down below 0.1/cpu, remove level two nodes(two nodes)
+   + Scale out watch time: 5 minutes
+   + Scale in watch time: 5 minutes
+   + re-watch scale out interval: 5 minutes
+   + re-watch scale in interval: 5 minutes
+   + What nodes to be added
+     + Average TiKV gRPC Duration
+     + Average / P99 PD TSO Wait/RPC Duration
+     + Average / P99 Storage Async Write Duration
+   + exec statement error: Error 9005: Region is unavailable, try again later
+** TiKV
