@@ -26,8 +26,10 @@ except pymysql.MySQLError as e:
 
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
-#def upload_s3():
-#    with open("s3://my_bucket/my_file.csv", "w+") as f:
+def upload_s3():
+    s3 = boto3.client('s3')
+    # s3.upload_file(event['file_path'], event['bucket_name'], event['object_name'])
+    s3.upload_file("/tmp/test.txt",  "jay-data", "lambda/data/test.txt")
 
 
 def lambda_handler(event, context):
@@ -38,6 +40,8 @@ def lambda_handler(event, context):
     data = json.loads(message)
     CustID = data['CustID']
     Name = data['Name']
+
+    upload_s3()
 
     item_count = 0
     sql_string = f"insert into Customer (CustID, Name) values({CustID}, '{Name}')"
