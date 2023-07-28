@@ -29,3 +29,12 @@ pip3 install python-lambda-local
 
 python-lambda-local -l package -f lambda_handler -e variables.json lambda_function.py event.json
   #+END_SRC
+
+** websites
+https://docs.aws.amazon.com/lambda/latest/dg/services-rds-tutorial.html
+
+** role and policy
+https://dev.classmethod.jp/articles/tsnote-lambda-the-provided-execution-role-does-not-have-permissions-to-call-createnetworkinterface-on-ec2/
+
+** rdsdata
+RDSDATA is only supported for dedicated server.
