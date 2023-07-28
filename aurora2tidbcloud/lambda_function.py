@@ -32,7 +32,8 @@ logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 def upload_s3(fileName: str):
     s3 = boto3.client('s3')
-    s3.upload_file(fileName,  "jay-data", f"lambda/data/{os.path.basename(fileName)}")
+    response = s3.upload_file(fileName,  "jay-data", f"lambda/data/{os.path.basename(fileName)}")
+    logger.info(f"upload file response: {response}")
 
 def backup() -> bool:
     logger.info("Starting to backup the database")
@@ -54,12 +55,14 @@ def save_file_to_local(db: dict, compress: bool=True):
     )
     os.makedirs(os.path.dirname(target_local_path), exist_ok=True)
 
-    mysqldump_string = f'/usr/bin/mysqldump --no-autocommit=1 --single-transaction=1 --extended-insert=1 {target_db_string}'
+    mysqldump_string = f'/opt/bin/mysqldump --no-autocommit=1 --single-transaction=1 --extended-insert=1 {target_db_string}'
     command = f'{mysqldump_string} | gzip -9 > {target_local_path};' if compress else f'{mysqldump_string} > {target_local_path};'
 
     logger.info(f"command: <{command}>")
 
     response = subprocess.run(command, shell=True, capture_output=True)
+    if response.returncode != 0:
+        logger.info(f"response: {response.stderr}")
 
     return target_local_path
 
