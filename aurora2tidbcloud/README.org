@@ -28,6 +28,11 @@ pip install --target package boto3
 pip3 install python-lambda-local
 
 python-lambda-local -l package -f lambda_handler -e variables.json lambda_function.py event.json
+
+cd package
+zip -r ../lambda_function.zip . 
+cd ..
+zip lambda_function.zip lambda_function.py 
   #+END_SRC
 
 ** websites
@@ -38,3 +43,22 @@ https://dev.classmethod.jp/articles/tsnote-lambda-the-provided-execution-role-do
 
 ** rdsdata
 RDSDATA is only supported for dedicated server.
+
+* Todo List
+** golang script
+  + Check binlog format 
+    - Install cloudformation for lambda 
+    - Invoke lambda
+    - Uninstall cloudformation
+  + Fetch binlog position
+    - Install cloudformation for  lambda
+    - Invoke lambda 
+    - Uninstall cloudformation
+  + mysqldump ddl to s3
+    - Install cloudformation for  lambda
+    - Invoke lambda 
+    - Uninstall cloudformation
+  + Create ddl to tidb cloud
+  + database snapshot taken
+  + snapshot export
+  + Import data to tidb cloud

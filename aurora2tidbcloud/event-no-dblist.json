@@ -1,0 +1,12 @@
+{
+	"RDSConn": {
+		"rds_host": "localhost",
+		"rds_port": 3306,
+		"rds_user": "admin",
+		"rds_password": "password"
+	},
+	"S3": {
+		"BucketName": "bucketname",
+		"S3Key": "lambda/data"
+	}
+}
