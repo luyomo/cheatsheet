@@ -1,0 +1,14 @@
+* Installation
+** Make the package and upload it to S3
+   Before run the command, set the aws credentials info in the terminal.
+#+BEGIN_SRC
+workstation$ make build
+#+END_SRC
+
+** Install from template
+Create lambda function from [[https://s3.console.aws.amazon.com/s3/object/jay-data?region=us-east-1&prefix=lambda/cloudformation/mysqlBinglogInfo.yaml][template]]. Input the proper vpc/security group/subnets to access the RDS database.
+
+* Local Test
+#+BEGIN_SRC
+workstation$ python-lambda-local -l python -f lambda_handler lambda_function.py event.json
+#+END_SRC

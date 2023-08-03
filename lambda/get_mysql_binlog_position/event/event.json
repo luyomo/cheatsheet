@@ -1,0 +1,8 @@
+{
+	"RDSConn": {
+		"rds_host": "localhost",
+		"rds_port": 3306,
+		"rds_user": "admin",
+		"rds_password": "password"
+	}
+}
