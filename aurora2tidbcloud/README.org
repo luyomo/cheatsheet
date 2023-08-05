@@ -1,0 +1,28 @@
+* TodoList
+** File structure
+   + main.go
+*** cmd
+    + root.go
+*** internal
+    + root.go
+**** app
+     + root.go
+***** configs
+** tasks
+*** Flow
+**** DONE Decide the parameters
+**** DONE Complete confile file parsing
+**** DONE Call cloudformation to create lambda function
+     + vpc id
+     + security group
+     + subnets
+**** Invoke lambda function to get binlog position
+**** Take rds snapshot
+**** Export data to S3
+**** Call cloudformation to creae lambda function to copy the ddl
+**** sysdump file to s3
+**** Call API to import data
+*** Parameters
+**** RDS connection string
+**** lambda install vpc
+**** TiDB Cloud API Key
