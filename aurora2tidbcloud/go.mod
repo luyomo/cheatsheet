@@ -3,11 +3,13 @@ module github.com/luyomo/cheatsheet/aurora2tidbcloud
 go 1.19
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.18.0
+	github.com/aws/aws-sdk-go-v2 v1.20.0
+	github.com/aws/aws-sdk-go-v2/config v1.15.5
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.20.4
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.39.1
 	github.com/fatih/color v1.15.0
 	github.com/joomcode/errorx v1.1.0
-	github.com/luyomo/OhMyTiUP v0.0.6
+	github.com/luyomo/OhMyTiUP v0.0.7-0.20230806133711-7850f5092cea
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pingcap/tiup v1.12.3
 	github.com/spf13/cobra v1.7.0
@@ -24,12 +26,11 @@ require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/appleboy/easyssh-proxy v1.3.10-0.20211209134747-6671f69d85f5 // indirect
 	github.com/asaskevich/EventBus v0.0.0-20200907212545-49d423059eef // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.4.8 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.15.5 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.4.11 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.12.0 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.12.4 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.33 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.27 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.37 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.31 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.11 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.0.14 // indirect
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.24.3 // indirect
@@ -50,7 +51,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.27.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.11.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.16.9 // indirect
-	github.com/aws/smithy-go v1.13.5 // indirect
+	github.com/aws/smithy-go v1.14.0 // indirect
 	github.com/cavaliercoder/grab v1.0.1-0.20201108051000-98a5bfe305ec // indirect
 	github.com/cheggaaa/pb/v3 v3.1.2 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
