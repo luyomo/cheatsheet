@@ -15,7 +15,7 @@ lambda:
 	aws s3 cp lambda_function.zip s3://jay-data/lambda/source/
 
 cf:
-	aws s3 cp template.yaml s3://jay-data/lambda/cloudformation/
+	aws s3 cp template.yaml s3://jay-data/lambda/cloudformation/mysqldump-to-s3.yaml
 
 clean:
 	@if [ -d /tmp/lambda-mysqldump-to-s3  ] ; then rm -rf /tmp/lambda-mysqldump-to-s3 ; fi

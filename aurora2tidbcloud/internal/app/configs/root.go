@@ -7,18 +7,18 @@ import (
 )
 
 type Config struct {
-	SourceDB   SourceConfig `toml:"source_db"`
+	SourceDB   SourceConfig `toml:"source_db" json:"RDSConn,omitempty"`
 	TargetDB   TargetConfig `toml:"target_db"`
 	LambdaVPC  LambdaVPC    `toml:"lambdavpc"`
-	BucketInfo BucketInfo   `toml:"bucket_info"`
+	BucketInfo BucketInfo   `toml:"bucket_info" json:"S3"`
 }
 
 type SourceConfig struct {
-	Host     string `toml:"host"`
-	Port     int    `toml:"port"`
-	User     string `toml:"user"`
-	Password string `toml:"password"`
-	DB       string `toml:"db"`
+	Host     string `toml:"host" json:"rds_host,omitempty"`
+	Port     int    `toml:"port" json:"rds_port,omitempty"`
+	User     string `toml:"user" json:"rds_user,omitempty"`
+	Password string `toml:"password" json:"rds_password,omitempty"`
+	DB       string `toml:"db" json:"rds_db,omitempty"`
 }
 
 type TargetConfig struct {
@@ -36,8 +36,8 @@ type LambdaVPC struct {
 }
 
 type BucketInfo struct {
-	BucketName string `toml:"bucket_name"`
-	S3Key      string `toml:"s3key"`
+	BucketName string `toml:"bucket_name,omitempty" json:"BucketName,omitempty"`
+	S3Key      string `toml:"s3key" json:"S3Key,omitempty"`
 }
 
 func ReadConfigFile(configFile string) (*Config, error) {

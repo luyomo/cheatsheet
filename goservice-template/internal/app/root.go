@@ -1,21 +1,17 @@
 package app
 
 import (
-    "fmt"
+	"fmt"
 
-    "github.com/luyomo/cheatsheet/goservice-template/internal/app/configs"
+	"github.com/luyomo/cheatsheet/goservice-template/internal/app/configs"
 )
 
 func Run(gOpt configs.Options) error {
-    fmt.Println("Executing the application")
+	config, err := configs.ReadConfigFile(gOpt.ConfigFile)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("The configs are : %#v \n", config)
 
-    fmt.Printf("The options are : %#v \n", gOpt)
-
-    config, err := configs.ReadConfigFile(gOpt.ConfigFile)
-    if err != nil {
-        return err 
-    }
-    fmt.Printf("The configs are : %#v \n", config)
-
-    return nil
+	return nil
 }

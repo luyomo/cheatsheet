@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/luyomo/cheatsheet/aurora2tidbcloud/internal/app/configs"
+	cfapilib "github.com/luyomo/cheatsheet/aurora2tidbcloud/pkg/aws/cloudformation"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
@@ -32,10 +34,29 @@ func Run(gOpt configs.Options) error {
 	parameters = append(parameters, types.Parameter{ParameterKey: aws.String("SubnetsIds"), ParameterValue: aws.String(strings.Join(config.LambdaVPC.Subnets, ","))})
 	parameters = append(parameters, types.Parameter{ParameterKey: aws.String("SecurityGroupIds"), ParameterValue: aws.String(config.LambdaVPC.SecurityGroupID)})
 
-	ctx := context.WithValue(context.Background(), "clusterName", "lambda-fetch-binlog")
+	ctx := context.WithValue(context.Background(), "clusterName", "mysqldump-to-s3")
 	ctx = context.WithValue(ctx, "clusterType", "binlogPos")
 
 	lambdaTask := task.NewBuilder().
+		CreateCloudFormationByS3URL("https://jay-data.s3.amazonaws.com/lambda/cloudformation/mysqldump-to-s3.yaml", &parameters, &[]types.Tag{
+			{Key: aws.String("Type"), Value: aws.String("aurora")},
+			{Key: aws.String("Scope"), Value: aws.String("private")},
+		}).
+		BuildAsStep(fmt.Sprintf("  - Preparing lambda service ... ..."))
+
+	if err := lambdaTask.Execute(ctxt.New(ctx, 1)); err != nil {
+		if errorx.Cast(err) != nil {
+			// FIXME: Map possible task errors and give suggestions.
+			return err
+		}
+		return err
+	}
+
+	// ********** ********** Create CloudFormation
+	ctx = context.WithValue(context.Background(), "clusterName", "jay-lambda")
+	ctx = context.WithValue(ctx, "clusterType", "mysqldump")
+
+	lambdaTask = task.NewBuilder().
 		CreateCloudFormationByS3URL("https://jay-data.s3.amazonaws.com/lambda/cloudformation/mysqlBinglogInfo.yaml", &parameters, &[]types.Tag{
 			{Key: aws.String("Type"), Value: aws.String("aurora")},
 			{Key: aws.String("Scope"), Value: aws.String("private")},
@@ -48,8 +69,34 @@ func Run(gOpt configs.Options) error {
 			return err
 		}
 		return err
-
 	}
+
+	cfapi, err := cfapilib.NewCFAPI(nil)
+	if err != nil {
+		return err
+	}
+
+	s3arn, err := cfapi.GetStackResource("mysqldump-to-s3", "S3Bucket")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("The lambda function are : <%#v> \n\n\n", *s3arn)
+
+	config.BucketInfo.BucketName = *s3arn
+
+	lambdaDDLExport, err := cfapi.GetStackResource("mysqldump-to-s3", "ddlExport")
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("The lambda function are : <%#v> \n\n\n", *lambdaDDLExport)
+
+	lambdaFetchBinlogPos, err := cfapi.GetStackResource("lambda-fetch-binlog", "ddlExport")
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("The lambda function are : <%#v> \n\n\n", *lambdaFetchBinlogPos)
 
 	// ********** **********
 	cfg, err := awsconfig.LoadDefaultConfig(context.TODO())
@@ -57,16 +104,34 @@ func Run(gOpt configs.Options) error {
 		return err
 	}
 
-	client := lambda.NewFromConfig(cfg)
-
-	output, err := client.Invoke(context.TODO(), &lambda.InvokeInput{FunctionName: aws.String("lambda-fetch-binlog-ddlExport-SNPdBVNH2skJ"),
-		// InvocationType: lambdatypes.InvocationTypeEvent,
-		InvocationType: lambdatypes.InvocationTypeRequestResponse,
-		Payload:        []byte("{\"RDSConn\": {\"rds_host\":\"jay-labmda.cluster-cxmxisy1o2a2.us-east-1.rds.amazonaws.com\",\"rds_port\":3306,\"rds_user\":\"admin\",\"rds_password\":\"1234Abcd\"}}")})
+	fmt.Printf("The configs are : %#v \n", config.SourceDB)
+	dbConn, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("The output: <%s>\n", (output.Payload))
+	fmt.Printf("The database : %s \n\n\n", string(dbConn))
+
+	client := lambda.NewFromConfig(cfg)
+
+	output, err := client.Invoke(context.TODO(), &lambda.InvokeInput{FunctionName: lambdaFetchBinlogPos,
+		// InvocationType: lambdatypes.InvocationTypeEvent,
+		InvocationType: lambdatypes.InvocationTypeRequestResponse,
+		// Payload:        []byte("{\"RDSConn\": {\"rds_host\":\"localhost\",\"rds_port\":3306,\"rds_user\":\"admin\",\"rds_password\":\"1234Abcd\"}}")})
+		Payload: dbConn})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("The output: <%s>\n", string(output.Payload))
+
+	output, err = client.Invoke(context.TODO(), &lambda.InvokeInput{FunctionName: lambdaDDLExport,
+		InvocationType: lambdatypes.InvocationTypeRequestResponse,
+		// Payload:        []byte(fmt.Sprintf("{\"RDSConn\": {\"rds_host\":\"localhost\",\"rds_port\":3306,\"rds_user\":\"admin\",\"rds_password\":\"1234Abcd\"}, \"S3\":{\"BucketName\":\"%s\", \"S3Key\":\"lambda/data\"}}", *s3arn))})
+		Payload: dbConn})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("The output: <%s>\n", string(output.Payload))
+
 	snapshotARN, err := awsutils.GetSnapshot("jay-labmda")
 	if err != nil {
 		return err
@@ -88,7 +153,7 @@ func Run(gOpt configs.Options) error {
 
 	export2s3 := task.NewBuilder().
 		CreateKMS("s3").
-		AuroraSnapshotExportS3(nil, "s3://jay-data/test", &timer). // 03. Export data from snapshot to S3. -> task 01/02
+		AuroraSnapshotExportS3(nil, fmt.Sprintf("s3://%s/test", *s3arn), &timer). // 03. Export data from snapshot to S3. -> task 01/02
 		BuildAsStep(fmt.Sprintf("  - Preparing lambda service ... ..."))
 
 	if err := export2s3.Execute(ctxt.New(ctx, 1)); err != nil {
