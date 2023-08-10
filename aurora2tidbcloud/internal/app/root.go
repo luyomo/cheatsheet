@@ -122,6 +122,12 @@ func Run(gOpt configs.Options) error {
 		return err
 	}
 	fmt.Printf("The output: <%s>\n", string(output.Payload))
+	var binlogPos []interface{}
+	err = json.Unmarshal(output.Payload, &binlogPos)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("The binlog pos is <%#v> \n\n\n", binlogPos[0])
 
 	output, err = client.Invoke(context.TODO(), &lambda.InvokeInput{FunctionName: lambdaDDLExport,
 		InvocationType: lambdatypes.InvocationTypeRequestResponse,
@@ -130,20 +136,21 @@ func Run(gOpt configs.Options) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("The output: <%s>\n", string(output.Payload))
+	fmt.Printf("The output on <%s>\n", string(output.Payload))
 
 	snapshotARN, err := awsutils.GetSnapshot("jay-labmda")
 	if err != nil {
 		return err
 	}
 	fmt.Printf("The snapshot is : <%#v> \n\n\n", *snapshotARN)
-	if *snapshotARN == "" {
-		snapshotARN, err = awsutils.RDSSnapshotTaken("lambda-fetch-binlog", "mysql-bin-changelog.000009", 154)
-		if err != nil {
-			return err
-		}
-		// fmt.Printf("created snapshot arn : %s \n\n\n", *snapshotARN)
+	// if *snapshotARN == "" {
+	// snapshotARN, err = awsutils.RDSSnapshotTaken("lambda-fetch-binlog", "mysql-bin-changelog.000009", 154)
+	snapshotARN, err = awsutils.RDSSnapshotTaken("lambda-fetch-binlog", binlogPos[2].(string), binlogPos[3].(float64))
+	if err != nil {
+		return err
 	}
+	// fmt.Printf("created snapshot arn : %s \n\n\n", *snapshotARN)
+	// }
 
 	var timer awsutils.ExecutionTimer
 	timer.Initialize([]string{"Step", "Duration(s)"})
