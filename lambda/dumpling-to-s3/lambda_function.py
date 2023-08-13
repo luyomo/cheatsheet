@@ -88,7 +88,7 @@ class MySQLDump:
 
     # mysqldump -d -h jay-labmda.cluster-cxmxisy1o2a2.us-east-1.rds.amazonaws.com -u admin -p1234Abcd --database test
 
-        mysqldump_string = f'/tmp/dumpling -d --filetype sql -o {target_local_path} {target_db_string}'
+        mysqldump_string = f'/opt/bin/dumpling -d --filetype sql -o {target_local_path} {target_db_string}'
         # command = f'{mysqldump_string} | gzip -9 > {target_local_path};' if compress else f'{mysqldump_string} > {target_local_path};'
 
         logger.info(f"command: <{mysqldump_string}>")

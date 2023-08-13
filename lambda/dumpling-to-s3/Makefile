@@ -1,7 +1,4 @@
-build: clean mysqldump python-base lambda cf
-
-mysqldump:
-	aws s3 cp layers/mysqldump5.7-cli.zip s3://jay-data/lambda/layers/
+build: clean python-base lambda cf
 
 python-base:
 	mkdir python 

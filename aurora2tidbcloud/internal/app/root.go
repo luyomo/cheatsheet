@@ -22,6 +22,8 @@ import (
 )
 
 func Run(gOpt configs.Options) error {
+	/* ****************************************************************** */
+	/* ****************************************************************** */
 	config, err := configs.ReadConfigFile(gOpt.ConfigFile)
 	if err != nil {
 		return err
@@ -91,7 +93,8 @@ func Run(gOpt configs.Options) error {
 
 	fmt.Printf("The lambda function are : <%#v> \n\n\n", *lambdaDDLExport)
 
-	lambdaFetchBinlogPos, err := cfapi.GetStackResource("lambda-fetch-binlog", "ddlExport")
+	// lambdaFetchBinlogPos, err := cfapi.GetStackResource("lambda-fetch-binlog", "ddlExport")
+	lambdaFetchBinlogPos, err := cfapi.GetStackResource("jay-lambda", "ddlExport")
 	if err != nil {
 		return err
 	}
@@ -129,6 +132,8 @@ func Run(gOpt configs.Options) error {
 	}
 	fmt.Printf("The binlog pos is <%#v> \n\n\n", binlogPos[0])
 
+	// Dumpling the ddl
+	fmt.Printf("The db connection: <%#v> \n\n\n", string(dbConn))
 	output, err = client.Invoke(context.TODO(), &lambda.InvokeInput{FunctionName: lambdaDDLExport,
 		InvocationType: lambdatypes.InvocationTypeRequestResponse,
 		// Payload:        []byte(fmt.Sprintf("{\"RDSConn\": {\"rds_host\":\"localhost\",\"rds_port\":3306,\"rds_user\":\"admin\",\"rds_password\":\"1234Abcd\"}, \"S3\":{\"BucketName\":\"%s\", \"S3Key\":\"lambda/data\"}}", *s3arn))})
@@ -143,21 +148,22 @@ func Run(gOpt configs.Options) error {
 		return err
 	}
 	fmt.Printf("The snapshot is : <%#v> \n\n\n", *snapshotARN)
-	// if *snapshotARN == "" {
-	// snapshotARN, err = awsutils.RDSSnapshotTaken("lambda-fetch-binlog", "mysql-bin-changelog.000009", 154)
-	snapshotARN, err = awsutils.RDSSnapshotTaken("lambda-fetch-binlog", binlogPos[2].(string), binlogPos[3].(float64))
-	if err != nil {
-		return err
+	if *snapshotARN == "" {
+		// snapshotARN, err = awsutils.RDSSnapshotTaken("lambda-fetch-binlog", "mysql-bin-changelog.000009", 154)
+		snapshotARN, err = awsutils.RDSSnapshotTaken("jay-labmda", binlogPos[2].(string), binlogPos[3].(float64))
+		if err != nil {
+			return err
+		}
+		// fmt.Printf("created snapshot arn : %s \n\n\n", *snapshotARN)
 	}
-	// fmt.Printf("created snapshot arn : %s \n\n\n", *snapshotARN)
-	// }
 
 	var timer awsutils.ExecutionTimer
 	timer.Initialize([]string{"Step", "Duration(s)"})
-
+	fmt.Printf("Starting to export data to s3 \n\n\n")
 	ctx = context.WithValue(ctx, "clusterName", "jay-labmda")
 	ctx = context.WithValue(ctx, "clusterType", "aurora2tidbcloud")
 
+	fmt.Printf("The s3 port: <%s>\n\n\n", *s3arn)
 	export2s3 := task.NewBuilder().
 		CreateKMS("s3").
 		AuroraSnapshotExportS3(nil, fmt.Sprintf("s3://%s/test", *s3arn), &timer). // 03. Export data from snapshot to S3. -> task 01/02
