@@ -11,7 +11,7 @@ import subprocess
 DATABASE_LIST = ["test"]
 
 TEMP_BASE_DIR = "/tmp"
-PATH_TEMPLATE = '{base_dir}/{db_host}/{db_name}/{file}'
+PATH_TEMPLATE = '{base_dir}/{db_host}/{db_name}'
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -34,7 +34,7 @@ class MySQLDump:
             logger.error("ERROR: Unexpected error: Could not connect to MySQL instance.")
             logger.error(e)
             sys.exit()
-        
+
         logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
         if self.BackupDBs is None:
@@ -42,8 +42,17 @@ class MySQLDump:
 
     def upload_s3(self, fileName: str):
         s3 = boto3.client('s3')
-        response = s3.upload_file(fileName,  self.S3Bucket, f"{self.S3Key}/{os.path.basename(fileName)}")
-        logger.info(f"upload file response: {response}")
+        for subdir, dirs, files in os.walk(fileName):
+            for file in files:
+                full_path = os.path.join(subdir, file)
+                logger.info(f"The path: {full_path} -> {self.S3Bucket} / {self.S3Key}/{os.path.basename(full_path)} ")
+                response = s3.upload_file(full_path,  self.S3Bucket, f"{self.S3Key}/{os.path.basename(full_path)}")
+
+                # with open(full_path, 'rb') as data:
+                #     bucket.put_object(Key=bucketFolderName, Body=data)
+
+        # response = s3.upload_file(fileName,  self.S3Bucket, f"{self.S3Key}/{os.path.basename(fileName)}")
+        # logger.info(f"upload file response: {response}")
 
     def Backup(self) -> bool:
         logger.info("Starting to backup the database")
@@ -62,29 +71,32 @@ class MySQLDump:
 
         logger.info(f"All the db are: {targetDBs}")
         return targetDBs
-    
+
     def save_file_to_local(self, dbName: str, compress: bool=True):
-        exp = f'{dbName}.sql.gz' if compress else f'{dbName}.ddl.sql'
-    
-        target_db_string = f'-h {self.RDSHost} --port {self.RDSPort} -u {self.RDSUser} -p{self.RDSPassword} {dbName}'
-    
+        # exp = f'{dbName}.sql.gz' if compress else f'{dbName}.ddl.sql'
+
+        target_db_string = f'-h {self.RDSHost} --port {self.RDSPort} -u {self.RDSUser} -p{self.RDSPassword}'
+
         target_local_path = PATH_TEMPLATE.format(
             base_dir=TEMP_BASE_DIR,
             db_host=self.RDSHost,
-            db_name=dbName,
-            file=f'{exp}'
+            db_name=dbName
+            # file=f'{exp}'
         )
-        os.makedirs(os.path.dirname(target_local_path), exist_ok=True)
-    
-        mysqldump_string = f'/opt/bin/mysqldump --no-autocommit=1 --single-transaction=1 --extended-insert=1 {target_db_string}'
-        command = f'{mysqldump_string} | gzip -9 > {target_local_path};' if compress else f'{mysqldump_string} > {target_local_path};'
-    
-        logger.info(f"command: <{command}>")
-    
-        response = subprocess.run(command, shell=True, capture_output=True)
+        # os.makedirs(os.path.dirname(target_local_path), exist_ok=True)  
+        os.makedirs(target_local_path, exist_ok=True)
+
+    # mysqldump -d -h jay-labmda.cluster-cxmxisy1o2a2.us-east-1.rds.amazonaws.com -u admin -p1234Abcd --database test
+
+        mysqldump_string = f'/tmp/dumpling -d --filetype sql -o {target_local_path} {target_db_string}'
+        # command = f'{mysqldump_string} | gzip -9 > {target_local_path};' if compress else f'{mysqldump_string} > {target_local_path};'
+
+        logger.info(f"command: <{mysqldump_string}>")
+
+        response = subprocess.run(mysqldump_string, shell=True, capture_output=True)
         if response.returncode != 0:
             logger.info(f"response: {response.stderr}")
-    
+
         return target_local_path
 
 
