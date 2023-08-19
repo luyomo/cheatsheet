@@ -11,14 +11,16 @@ type Config struct {
 	TargetDB   TargetConfig `toml:"target_db"`
 	LambdaVPC  LambdaVPC    `toml:"lambdavpc"`
 	BucketInfo BucketInfo   `toml:"bucket_info" json:"S3"`
+	TiDBCloud  TiDBCloud    `toml:"tidbcloud"`
 }
 
 type SourceConfig struct {
-	Host     string `toml:"host" json:"rds_host,omitempty"`
-	Port     int    `toml:"port" json:"rds_port,omitempty"`
-	User     string `toml:"user" json:"rds_user,omitempty"`
-	Password string `toml:"password" json:"rds_password,omitempty"`
-	DB       string `toml:"db" json:"rds_db,omitempty"`
+	Host              string `toml:"host" json:"rds_host,omitempty"`
+	Port              int    `toml:"port" json:"rds_port,omitempty"`
+	User              string `toml:"user" json:"rds_user,omitempty"`
+	Password          string `toml:"password" json:"rds_password,omitempty"`
+	DB                string `toml:"db" json:"rds_db,omitempty"`
+	AuroraClusterName string `toml:"aurora_cluster_name" json:"aurora_cluster_name"`
 }
 
 type TargetConfig struct {
@@ -38,6 +40,11 @@ type LambdaVPC struct {
 type BucketInfo struct {
 	BucketName string `toml:"bucket_name,omitempty" json:"BucketName,omitempty"`
 	S3Key      string `toml:"s3key" json:"S3Key,omitempty"`
+}
+
+type TiDBCloud struct {
+	ProjectID   string `toml:"project_id,omitempty" json:"ProjectId,omitempty"`
+	ClusterName string `toml:"cluster_name,omitempty" json:"ClusterName,omitempty"`
 }
 
 func ReadConfigFile(configFile string) (*Config, error) {

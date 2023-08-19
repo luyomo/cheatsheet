@@ -57,6 +57,7 @@ func NewKmsAPI(mapArgs *map[string]string) (*KmsAPI, error) {
 	return &kmsapi, nil
 }
 
+// return: (aliasArn, error)
 func (k *KmsAPI) GetKMSKeyByName(kmsName string) (*string, error) {
 	resp, err := k.client.ListKeys(context.TODO(), &kms.ListKeysInput{})
 	if err != nil {
@@ -71,7 +72,7 @@ func (k *KmsAPI) GetKMSKeyByName(kmsName string) (*string, error) {
 		for _, aliasEntry := range aliasResp.Aliases {
 
 			if fmt.Sprintf("alias/%s", kmsName) == *aliasEntry.AliasName {
-				return key.KeyId, nil
+				return key.KeyArn, nil
 			}
 		}
 	}

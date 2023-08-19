@@ -125,6 +125,7 @@ Resources:
         S3Bucket: jay-data
         S3Key: lambda/source/mysqlBinlogInfo.zip
       Description: Fetch binlog info from mysql
+      Timeout: 10
     DependsOn: networkPolicy
 Outputs:
   #  BucketFolder:

@@ -125,6 +125,7 @@ Resources:
         S3Bucket: jay-data
         S3Key: lambda/source/lambda_function.zip
       Description: Exact ddl from db to s3
+      Timeout: 30
     DependsOn: networkPolicy
 Outputs:
   BucketFolder:

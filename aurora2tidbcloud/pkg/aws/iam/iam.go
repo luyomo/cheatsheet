@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	// "log"
 	"net/url"
 	"strings"
 
@@ -60,7 +61,7 @@ func NewIAMAPI(mapArgs *map[string]string) (*IAMAPI, error) {
 }
 
 // Return: (RolwArn, error)
-func (b *IAMAPI) CreateRole4S3ByRDS(roleName string, path *string, s3backupDir string, tags *[]types.Tag) (*string, error) {
+func (b *IAMAPI) CreateRole4S3ByRDS(roleName string, path *string, s3backupDir string, kmsArn *string, tags *[]types.Tag) (*string, error) {
 	parsedS3Dir, err := url.Parse(s3backupDir)
 	if err != nil {
 		return nil, err
@@ -83,9 +84,25 @@ func (b *IAMAPI) CreateRole4S3ByRDS(roleName string, path *string, s3backupDir s
                 "arn:aws:s3:::%s",
                 "arn:aws:s3:::%s/*"
             ]
+        },
+        {
+            "Sid": "AllowKMSkey",
+            "Effect": "Allow",
+            "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyWithoutPlaintext",
+                "kms:ReEncryptFrom",
+                "kms:ReEncryptTo",
+                "kms:CreateGrant",
+                "kms:DescribeKey",
+                "kms:RetireGrant"
+            ],
+            "Resource": "%s"
         }
     ]
-}`, parsedS3Dir.Host, strings.Trim(parsedS3Dir.Host, "/"))
+}`, parsedS3Dir.Host, strings.Trim(parsedS3Dir.Host, "/"), *kmsArn)
 
 	policyArn, err := b.createPolicy(roleName, policy, path, nil)
 	if err != nil {
@@ -124,6 +141,88 @@ func (b *IAMAPI) CreateRole4S3ByRDS(roleName string, path *string, s3backupDir s
 	return roleArn, nil
 }
 
+func (b *IAMAPI) CreateRole4S3External(roleName string, path, kmsArn, accountId, externalId *string, s3backupDir string, tags *[]types.Tag) (*string, error) {
+
+	parsedS3Url, err := url.Parse(s3backupDir)
+	if err != nil {
+		return nil, err
+	}
+
+	importPolicy := fmt.Sprintf(`{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::%s/*"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation"
+            ],
+            "Resource": "arn:aws:s3:::%s"
+        },
+        {
+            "Sid": "AllowKMSkey",
+            "Effect": "Allow",
+            "Action": [
+                "kms:Decrypt"
+            ],
+            "Resource": "%s"
+        }
+    ]
+}`, parsedS3Url.Host, parsedS3Url.Host, *kmsArn)
+
+	policyArn, err := b.createPolicy(roleName, importPolicy, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// fmt.Printf("The policyArn: %s \n\n\n", policyArn)
+
+	importAssumeRolePolicyDocument := fmt.Sprintf(`{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+                "AWS": "%s"
+            },
+            "Condition": {
+                "StringEquals": {
+                    "sts:ExternalId": "%s"
+                }
+            }
+        }
+    ]
+}`, *accountId, *externalId)
+
+	roleArn, err := b.createRole(roleName, importAssumeRolePolicyDocument, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// fmt.Printf("The role ARN is: <%#v>\n\n\n", *roleArn)
+
+	if _, err = b.client.AttachRolePolicy(context.TODO(), &iam.AttachRolePolicyInput{
+		PolicyArn: policyArn,
+		RoleName:  aws.String(roleName),
+	}); err != nil {
+		return nil, err
+	}
+	fmt.Printf("The role is : <%#s> \n\n\n", *roleArn)
+
+	return roleArn, nil
+}
+
 func (b *IAMAPI) createPolicy(policyName, policyDocument string, path *string, tags *[]types.Tag) (*string, error) {
 	policyArn, err := b.getPolicy(policyName, path)
 	if err != nil {
@@ -152,6 +251,20 @@ func (b *IAMAPI) createPolicy(policyName, policyDocument string, path *string, t
 
 	// fmt.Printf("The policy entity: <%#v> \n\n\n", policyEntity.Policy.Arn)
 	return policyEntity.Policy.Arn, nil
+}
+
+func (b *IAMAPI) deletePolicy(policyName string, path *string) error {
+	policyArn, err := b.getPolicy(policyName, path)
+	if err != nil {
+		return err
+	}
+
+	_, err = b.client.DeletePolicy(context.TODO(), &iam.DeletePolicyInput{PolicyArn: policyArn})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Return: (policyArn, error)
@@ -201,6 +314,46 @@ func (b *IAMAPI) createRole(roleName, assumeRolePolicyDocument string, path *str
 	}
 	// fmt.Printf("The policy entity: <%#v> \n\n\n", roleEntity.Role.Arn)
 	return roleEntity.Role.Arn, nil
+}
+
+func (b *IAMAPI) detachAndRemoveAllRolePolicies(roleName string) error {
+	policies, err := b.client.ListAttachedRolePolicies(context.TODO(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)})
+	if err != nil {
+		return err
+	}
+	for _, policy := range policies.AttachedPolicies {
+		_, err := b.client.DetachRolePolicy(context.TODO(), &iam.DetachRolePolicyInput{RoleName: aws.String(roleName), PolicyArn: policy.PolicyArn})
+		if err != nil {
+			return err
+		}
+
+		_, err = b.client.DeletePolicy(context.TODO(), &iam.DeletePolicyInput{PolicyArn: policy.PolicyArn})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *IAMAPI) DeleteRole(roleName string, pathPrefix *string) error {
+	roleArn, err := b.getRole(roleName, pathPrefix)
+	if err != nil {
+		return err
+	}
+	if roleArn == nil {
+		return nil
+	}
+
+	if err := b.detachAndRemoveAllRolePolicies(roleName); err != nil {
+		return err
+	}
+
+	_, err = b.client.DeleteRole(context.TODO(), &iam.DeleteRoleInput{RoleName: aws.String(roleName)})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Return : (roleArn, error)

@@ -62,7 +62,41 @@ func NewCFAPI(mapArgs *map[string]string) (*CloudformationAPI, error) {
 	return &cfApi, nil
 }
 
+func (e *CloudformationAPI) DestroyStack(stackName string) error {
+	stack, err := e.GetStack(stackName)
+	if err != nil {
+		return err
+	}
+	if stack != nil {
+
+		if _, err = e.client.DeleteStack(context.TODO(), &cloudformation.DeleteStackInput{StackName: aws.String(stackName)}); err != nil {
+			return err
+		}
+
+		if err := awscommon.WaitUntilResouceAvailable(0, 0, 1, func() (bool, error) {
+			stack, err := e.GetStack(stackName)
+			if err != nil {
+				return false, err
+			}
+			if stack == nil {
+				return true, nil
+			}
+			return false, nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *CloudformationAPI) GetStackResource(stackName, logicalResourceId string) (*string, error) {
+	stack, err := e.GetStack(stackName)
+	if err != nil {
+		return nil, err
+	}
+	if stack == nil {
+		return nil, nil
+	}
 
 	describeStackResource, err := e.client.DescribeStackResource(context.TODO(), &cloudformation.DescribeStackResourceInput{StackName: aws.String(stackName), LogicalResourceId: aws.String(logicalResourceId)})
 	if err != nil {
