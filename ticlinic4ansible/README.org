@@ -1,5 +1,5 @@
 * inventory file preparation
-The file should be come from the ansible used for cluster deployment. Please refer to the [[./inventory.ini][inventory file]] for reference.
+The files should be come from the ansible used for cluster deployment. Please refer to the [[./inventory.ini][inventory file]] and [[./hosts.ini][hosts]] for reference.
 
 * TiUP
 ** tiup install and generate cluster info from ansible inventory file
