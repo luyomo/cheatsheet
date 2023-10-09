@@ -1,0 +1,92 @@
+user: {{ ansible_user }}
+tidb_version: {{ tidb_version }}
+topology:
+  global:
+    user: {{ ansible_user }}
+    ssh_port: 22
+    ssh_type: builtin
+    deploy_dir: {{ deploy_dir }}
+    data_dir: {{ deploy_dir }}/data
+    os: linux
+  monitored:
+    node_exporter_port: 9100
+    blackbox_exporter_port: 9115
+    deploy_dir: {{ deploy_dir }}
+    data_dir: {{ deploy_dir }}
+    log_dir: {{ deploy_dir }}/log
+  server_configs:
+    tidb: {}
+    tikv: {}
+    pd: {}
+    tidb_dashboard: {}
+    tiflash: {}
+    tiflash-learner: {}
+    pump: {}
+    drainer: {}
+    cdc: {}
+    kvcdc: {}
+    grafana: {}
+  tidb_servers:
+{% for host in groups['tidb_servers'] %}
+  - host: {{ host }}
+    ssh_port: 22
+    port: 4000
+    status_port: 10080
+    deploy_dir: {{ deploy_dir }}
+    log_dir: {{ deploy_dir }}/log
+    arch: {{ cpu_architecture }}
+    os: linux
+{% endfor %}
+  tikv_servers:
+{% for host in groups['tikv_servers'] %}
+  - host: {{ host }}
+    ssh_port: 22
+    port: 20160
+    status_port: 20180
+    deploy_dir: {{ deploy_dir }}
+    log_dir: {{ deploy_dir }}/log
+    data_dir: {{ deploy_dir }}/data
+    arch: {{ cpu_architecture }}
+    os: linux
+{% endfor %}
+  tiflash_servers: []
+  pd_servers:
+{% for host in groups['pd_servers'] %}
+  - host: {{ host }}
+    ssh_port: 22
+    name: pd-{{ host }}-2379
+    client_port: 2379
+    peer_port: 2380
+    deploy_dir: {{ deploy_dir }}
+    log_dir: {{ deploy_dir }}/log
+    data_dir: {{ deploy_dir }}/data
+    arch: {{ cpu_architecture }}
+    os: linux
+{% endfor %}
+  monitoring_servers:
+{% for host in groups['monitoring_servers'] %}
+  - host: {{ host }}
+    ssh_port: 22
+    port: 9090
+    ng_port: 12020
+    deploy_dir: {{ deploy_dir }}
+    data_dir: {{ deploy_dir }}/prometheus2.0.0.data.metrics
+    log_dir: {{deploy_dir}}/log
+    external_alertmanagers: []
+    arch: {{ cpu_architecture }}
+    os: linux
+{% endfor %}
+  grafana_servers:
+{% for host in groups['grafana_servers'] %}
+  - host: {{ host }}
+    ssh_port: 22
+    port: 3000
+    deploy_dir: {{ deploy_dir }}/opt/grafana
+    arch: {{ cpu_architecture }}
+    os: linux
+    username: admin
+    password: admin
+    anonymous_enable: false
+    root_url: ""
+    domain: ""
+{% endfor %}

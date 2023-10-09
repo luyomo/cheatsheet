@@ -1,0 +1,13 @@
+---
+# tasks file for clinic
+
+- name: tiup install
+  shell: "curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh"
+  args:
+    warn: false
+
+- name: create deploy directories
+  file: path="{{ lookup('env','HOME') }}/.tiup/storage/cluster/clusters/{{ cluster_name }}/ssh" state=directory mode=0755
+
+- name: create config file
+  template: src=meta.yaml.j2 dest="{{ lookup('env','HOME') }}/.tiup/storage/cluster/clusters/{{ cluster_name }}/meta.yaml" mode=0644 backup=yes
