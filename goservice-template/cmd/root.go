@@ -5,18 +5,11 @@ import (
     "os"
 
     "github.com/spf13/cobra"
-    "github.com/pingcap/tiup/pkg/tui"
     "github.com/fatih/color"
 
     "github.com/luyomo/cheatsheet/goservice-template/internal/app"
     "github.com/luyomo/cheatsheet/goservice-template/internal/app/configs"
 )
-
-// type Options struct {
-//     opt01 string
-//     opt02 int32
-//     opt03 bool
-// }
 
 var (
     rootCmd       *cobra.Command
@@ -40,8 +33,6 @@ func init() {
             return nil
         },
     }
-
-    tui.BeautifyCobraUsageAndHelp(rootCmd)
 
     rootCmd.PersistentFlags().StringVar(&gOpt.Opt01, "string-opt", "", "The string option")
     rootCmd.PersistentFlags().Int32Var(&gOpt.Opt02, "int32-opt", 0, "The int32 option")
