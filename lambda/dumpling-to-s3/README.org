@@ -1,0 +1,64 @@
+* Deisgn
+** Get the session credntial from aws
+** aws
+*** Input aurora name/regions
+*** Take snapshot
+*** Get binlog position using mysql command
+*** Use lambda to get binlog position
+*** Use lambda to extract ddl from mysql to S3
+** Command Cli
+   #+BEGIN_SRC
+workstation$ aurora2tidbcloud --source-db-host aurora-host --source-db-port 3306 --source-user root --source-password 1234Abcd --target
+  ... 001. Take binlog position                                - Todo: Possible to call skd cli to get binlog 
+           The rdsdata only support serverless aurora/rds. (No support to dedicate db server)
+           Another way is to use lambda 
+  ... 002. Extract DDL from source db                          - Todo: Possible to use lambda to export the DDL to S3
+           The rdsdata only support serverless aurora/rds. (No support to dedicate db server)
+  ... 003. Take aurora snapshot                                - OK(serverless): Golang SDK to take the snapshot
+  ... 004. Export snapshot to S3 parquet                       - OK(serverless): Golang SDK to call the function to export snapshot to S3
+  ... 005. Call Open API to import data                        - OK(serverless): Open API to call the data import
+  ... 006. Call DM to replicate data from aurora to TiDB Cloud - NG: No Open API, need to deploy the DM
+   #+END_SRC
+
+* Reference
+  #+BEGIN_SRC
+pip install --target package pymysql
+pip install --target package boto3
+
+pip3 install python-lambda-local
+
+python-lambda-local -l package -f lambda_handler -e variables.json lambda_function.py event.json
+
+cd package
+zip -r ../lambda_function.zip . 
+cd ..
+zip lambda_function.zip lambda_function.py 
+  #+END_SRC
+
+** websites
+https://docs.aws.amazon.com/lambda/latest/dg/services-rds-tutorial.html
+
+** role and policy
+https://dev.classmethod.jp/articles/tsnote-lambda-the-provided-execution-role-does-not-have-permissions-to-call-createnetworkinterface-on-ec2/
+
+** rdsdata
+RDSDATA is only supported for dedicated server.
+
+* Todo List
+** golang script
+  + Check binlog format 
+    - Install cloudformation for lambda 
+    - Invoke lambda
+    - Uninstall cloudformation
+  + Fetch binlog position
+    - Install cloudformation for  lambda
+    - Invoke lambda 
+    - Uninstall cloudformation
+  + mysqldump ddl to s3
+    - Install cloudformation for  lambda
+    - Invoke lambda 
+    - Uninstall cloudformation
+  + Create ddl to tidb cloud
+  + database snapshot taken
+  + snapshot export
+  + Import data to tidb cloud

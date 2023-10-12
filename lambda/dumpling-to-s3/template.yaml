@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+     The template to create the bucket
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "Meta Configuration"
+        Parameters: 
+          - Region
+          - VpcId
+          - SecurityGroupIds
+          - SubnetsIds
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/parameters-section-structure.html
+Parameters:
+  Region:
+    Description: The region for S3
+    Type: String
+    Default: us-east-1
+    AllowedValues:
+    - ap-northeast-1
+    - us-east-1
+  VpcId:
+    Description: VPC ID to allow th access permission
+    Type: AWS::EC2::VPC::Id
+  SecurityGroupIds:
+    Description: Security group for vpc
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  SubnetsIds:
+    Description: Subnets for vpc
+    Type: List<AWS::EC2::Subnet::Id>
+Resources:
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: "Delete"
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-data'
+  theRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: 'lambda.amazonaws.com'
+  s3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${AWS::StackName}-s3'
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - "s3:PutObject"
+              - "s3:Get*"
+            Effect: Allow
+            Resource: !Join ['/', [!GetAtt S3Bucket.Arn, '*']]
+          - Action:
+              - "s3:List*"
+              - "s3:GetBucketLocation"
+            Effect: Allow
+            Resource: 
+              Fn::GetAtt:
+                - S3Bucket
+                - Arn
+      Roles:
+        - !Ref theRole
+# https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html
+  networkPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${AWS::StackName}-network'
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - "ec2:DescribeNetworkInterfaces"
+              - "ec2:CreateNetworkInterface"
+              - "ec2:DeleteNetworkInterface"
+            Effect: Allow
+            Resource: "*"
+      Roles:
+        - !Ref theRole
+  dumpling:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.10
+      Content:
+        S3Bucket: jay-data
+        S3Key: lambda/layers/dumpling-v7.1.0-linux-amd64.zip
+      Description: mysql dump execution layer
+      LayerName: dumpling
+      LicenseInfo: MIT
+  pythonBase:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.10
+      Content:
+        S3Bucket: jay-data
+        S3Key: lambda/layers/python_base.zip
+      Description: python base execution layer
+      LayerName: python-base
+      LicenseInfo: MIT
+  ddlExport:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.10
+      Role: !GetAtt theRole.Arn
+      Handler: lambda_function.lambda_handler
+      Architectures: 
+        - x86_64
+      Layers:
+        - !Ref dumpling
+        - !Ref pythonBase
+      MemorySize: 128
+      VpcConfig:
+        SecurityGroupIds: !Ref SecurityGroupIds
+        SubnetIds: !Ref SubnetsIds
+      Code:
+        S3Bucket: jay-data
+        S3Key: lambda/source/lambda_function.zip
+      Description: Exact ddl from db to s3
+      Timeout: 30
+    DependsOn: networkPolicy
+Outputs:
+  BucketFolder:
+    Description: The S3 bucket and folder name
+    Value: 
+      Fn::GetAtt:
+        - S3Bucket
+        - Arn
+  RoleArn:
+    Description: The role ARN
+    Value: !GetAtt theRole.Arn

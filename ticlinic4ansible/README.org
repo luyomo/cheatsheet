@@ -1,0 +1,101 @@
+* inventory file preparation
+The files should be come from the ansible used for cluster deployment. Please refer to the [[./inventory.ini][inventory file]] and [[./hosts.ini][hosts]] for reference.
+
+* TiUP
+** tiup install and generate cluster info from ansible inventory file
+#+BEGIN_SRC
+tidb@ip-172-82-31-40:/tmp/cheatsheet/ticlinic4ansible$ ansible-playbook clinic.yml                                
+[WARNING]: log file at /tmp/cheatsheet/ticlinic4ansible/log/ansible.log is not writeable and we cannot create it, aborting
+                                             
+                                                                                          
+PLAY [Meta file generation] *********************************************************************************************************************************************************
+                                                                                          
+TASK [clinic : tiup install] ********************************************************************************************************************************************************
+changed: [localhost]                                                                                                                                                                 
+                                                                                                                                                                                     
+TASK [clinic : create deploy directories] *******************************************************************************************************************************************
+changed: [localhost]           
+                                             
+TASK [clinic : create config file] **************************************************************************************************************************************************
+changed: [localhost]       
+                                                                                          
+PLAY RECAP **************************************************************************************************************************************************************************
+localhost                  : ok=3    changed=3    unreachable=0    failed=0                                                                                                          
+                                                                                        
+#+END_SRC
+
+** Display cluster information by tiup command
+#+BEGIN_SRC
+tidb@ip-172-82-31-40:/tmp/cheatsheet/ticlinic4ansible$ tiup cluster display testcluster 
+tiup is checking updates for component cluster ...timeout(2s)!
+The component `cluster` version  is not installed; downloading from repository.
+download https://tiup-mirrors.pingcap.com/cluster-v1.13.1-linux-amd64.tar.gz 8.74 MiB / 8.74 MiB 100.00% 134.12 MiB/s                                                                
+Starting component `cluster`: /home/tidb/.tiup/components/cluster/v1.13.1/tiup-cluster display testcluster
+Cluster type:       tidb
+Cluster name:       testcluster
+Cluster version:    v6.5.4
+Deploy user:        tidb
+SSH type:           builtin
+Dashboard URL:      http://172.83.3.174:2379/dashboard
+Grafana URL:        http://172.82.31.40:3000
+ID                  Role        Host          Ports        OS/Arch       Status  Data Dir                                        Deploy Dir
+--                  ----        ----          -----        -------       ------  --------                                        ----------
+172.82.31.40:3000   grafana     172.82.31.40  3000         linux/x86_64  Up      -                                               /home/tidb/deploy/opt/grafana
+172.83.1.57:2379    pd          172.83.1.57   2379/2380    linux/x86_64  Up      /home/tidb/deploy/data                          /home/tidb/deploy
+172.83.3.174:2379   pd          172.83.3.174  2379/2380    linux/x86_64  Up|UI   /home/tidb/deploy/data                          /home/tidb/deploy
+172.83.5.249:2379   pd          172.83.5.249  2379/2380    linux/x86_64  Up      /home/tidb/deploy/data                          /home/tidb/deploy
+172.82.31.40:9090   prometheus  172.82.31.40  9090/12020   linux/x86_64  Up      /home/tidb/deploy/prometheus2.0.0.data.metrics  /home/tidb/deploy
+172.83.1.7:4000     tidb        172.83.1.7    4000/10080   linux/x86_64  Up      -                                               /home/tidb/deploy
+172.83.2.131:4000   tidb        172.83.2.131  4000/10080   linux/x86_64  Up      -                                               /home/tidb/deploy
+172.83.2.241:20160  tikv        172.83.2.241  20160/20180  linux/x86_64  Up      /home/tidb/deploy/data                          /home/tidb/deploy
+172.83.4.205:20160  tikv        172.83.4.205  20160/20180  linux/x86_64  Up      /home/tidb/deploy/data                          /home/tidb/deploy
+172.83.5.55:20160   tikv        172.83.5.55   20160/20180  linux/x86_64  Up      /home/tidb/deploy/data                          /home/tidb/deploy
+Total nodes: 10
+#+END_SRC
+
+** Copy the ssh key to tidbcluster directory
+#+BEGIN_SRC
+workstation$ mkdir ~/.tiup/storage/cluster/clusters/testcluster/ssh
+workstation$ cp ~/.ssh/id_rsa* ~/.tiup/storage/cluster/clusters/testcluster/ssh/
+#+END_SRC
+
+* Diag data collect
+cheatsheet/ticlinic4ansible$ tiup diag collect testcluster
+tiup is checking updates for component diag ...timeout(2s)!                               
+The component `diag` version  is not installed; downloading from repository.              
+download https://tiup-mirrors.pingcap.com/diag-v1.5.0-linux-amd64.tar.gz 26.12 MiB / 26.12 MiB 100.00% 45.44 MiB/s                                                                   
+Starting component `diag`: /home/admin/.tiup/components/diag/v1.5.0/diag collect testcluster
+Detecting metadata of the cluster...                                                      
+                                                                                          
+Detecting alert lists from Prometheus node...                                             
+                                                                                          
+Detecting metrics from Prometheus node...                                                 
+                                                                                          
+Detecting basic system information of servers...                                          
+                                                                                          
+Detecting logs of components...                                         
+... ... ...
+
+crap files on nodes
+  - Downloading config files from node 172.83.3.174 ... Done
+  - Downloading config files from node 172.83.1.57 ... Done
+  - Downloading config files from node 172.83.5.249 ... Done
+  - Downloading config files from node 172.83.4.205 ... Done
+  - Downloading config files from node 172.83.2.241 ... Done
+  - Downloading config files from node 172.83.5.55 ... Done
+  - Downloading config files from node 172.83.1.7 ... Done
+  - Downloading config files from node 172.83.2.131 ... Done
++ Cleanup temp files
+  - Cleanup temp files on 172.83.3.174:22 ... Done
+  - Cleanup temp files on 172.83.1.57:22 ... Done
+  - Cleanup temp files on 172.83.5.249:22 ... Done
+  - Cleanup temp files on 172.83.4.205:22 ... Done
+  - Cleanup temp files on 172.83.2.241:22 ... Done
+  - Cleanup temp files on 172.83.5.55:22 ... Done
+  - Cleanup temp files on 172.83.1.7:22 ... Done
+  - Cleanup temp files on 172.83.2.131:22 ... Done
+Collected data are stored in /tmp/cheatsheet/diag-testcluster-gdZ4npZsPk5
+cheatsheet/ticlinic4ansible$ ls /tmp/cheatsheet/diag-testcluster-gdZ4npZsPk5
+172.82.31.40  172.83.1.7    172.83.2.241  172.83.4.205  172.83.5.55   gdYhsTCJBc1_diag_audit.log  monitor
+172.83.1.57   172.83.2.131  172.83.3.174  172.83.5.249  cluster.json  meta.yaml
+#+END_SRC
