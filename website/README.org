@@ -1,0 +1,13 @@
+* domain application
+** Get domain from spaceship
+  https://www.spaceship.com
+** Bind the domain to IP address
+** Set the router to send traffic to specific localhost
+* Prepare Hello world application to provide the service
+** Use python to prepare one hello world service to listening
+** Prepare the nginx to listen from route and dispatch the message to python service
+* Setup the https
+** Use [Let's Encrypt] to setup the https
+** Use certbot to update the certificate automatically
+** Add google OAUTH2 authentication
+* Use Github to automate the whole process

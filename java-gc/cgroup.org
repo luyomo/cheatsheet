@@ -1,0 +1,199 @@
+* switch from cgroup v2 to cgroup v1 in AL2023
+  The cgroup v1 is not recommended from official document.
+  https://docs.aws.amazon.com/linux/al2023/ug/cgroupv2.html
+** How to switch from cgroup v2 to cgroup v2 technically
+*** Modify Kernel Parameters
+**** Update the kernel boot parameters to disable the unified cgroup hierarchy (cgroup v2) and enable cgroup v1
+     + Edit GRUB Configuration: Modify the kernel boot parameters:
+       #+BEGIN_SRC
+sudo nano /etc/default/grub
+       #+END_SRC
+     + Add the following option to the GRUB_CMDLINE_LINUX line:
+       #+BEGIN_SRC
+GRUB_CMDLINE_LINUX="systemd.unified_cgroup_hierarchy=0"
+       #+END_SRC
+       This disables the unified hierarchy (cgroup v2) and reverts the system to use cgroup v1.
+     + Regenerate GRUB Configuration:
+       #+BEGIN_SRC
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+       #+END_SRC
+     + Reboot system
+       #+BEGIN_SRC
+sudo reboot
+       #+END_SRC
+*** Verify cgroup v1 is Enabled
+    After the system reboots, confirm that it is using cgroup v1:
+    + Check the mounted cgroup hierarchies:
+      #+BEGIN_SRC
+mount | grep cgroup
+      #+END_SRC
+    + Look for cgroup v1 controllers like memory, cpu, blkio, etc.:
+      #+BEGIN_SRC
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,relatime,memory)
+cgroup on /sys/fs/cgroup/cpu type cgroup (rw,relatime,cpu)
+      #+END_SRC
+*** Configure Docker or Containerd for cgroup v1
+    In EKS, the container runtime (Docker or containerd) must be configured to use cgroup v1.
+    + For Docker:
+      - Edit Docker's daemon configuration file:
+        #+BEGIN_SRC
+sudo nano /etc/docker/daemon.json
+        #+END_SRC
+      - Add or update the cgroupDriver configuration:
+        #+BEGIN_SRC
+{
+  "exec-opts": ["native.cgroupdriver=cgroupfs"]
+}
+        #+END_SRC
+      - Restart Docker:
+        #+BEGIN_SRC
+sudo systemctl restart docker
+        #+END_SRC
+    + For containerd:
+      - Edit the containerd configuration:
+        #+BEGIN_SRC
+sudo nano /etc/containerd/config.toml
+        #+END_SRC
+      - Ensure the SystemdCgroup option is disabled:
+        #+BEGIN_SRC
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+    SystemdCgroup = false
+        #+END_SRC
+      - Restart containerd:
+        #+BEGIN_SRC
+sudo systemctl restart containerd
+        #+END_SRC
+*** Configure Kubelet for cgroup v1
+    The Kubelet must also use cgroup v1. Update the Kubelet configuration file:
+    + Open the Kubelet configuration file:
+      #+BEGIN_SRC
+sudo nano /etc/eks/kubelet.yaml
+      #+END_SRC
+    + Set the cgroup driver to cgroupfs:
+      #+BEGIN_SRC
+cgroupDriver: cgroupfs
+      #+END_SRC
+    + Restart the Kubelet:
+      #+BEGIN_SRC
+sudo systemctl restart kubelet
+      #+END_SRC
+*** Test the Configuration
+    Deploy a test pod and verify its cgroup settings:
+    + Deploy a simple pod:
+      #+BEGIN_SRC
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cgroup-test
+spec:
+  containers:
+  - name: test-container
+    image: ubuntu
+    command: ["sleep", "infinity"]
+      #+END_SRC
+      Apply it:
+      #+BEGIN_SRC
+kubectl apply -f pod.yaml
+      #+END_SRC
+    + Access the node and inspect the pod's cgroup:
+      #+BEGIN_SRC
+docker inspect <container-id> | grep -i cgroup
+      #+END_SRC
+    + Ensure the cgroup paths reference cgroup v1 (e.g., /sys/fs/cgroup/memory/...).
+* switch between cgroup v1 and cgroup v2 in the Linux
+** cgroup v1(before change)
+   + Docker cgroup confirmation
+     #+BEGIN_SRC
+ Cgroup Driver: systemd
+ Cgroup Version: 1
+     #+END_SRC
+   + OS confirmation
+     No controllers file is available.
+     #+BEGIN_SRC
+cat /sys/fs/cgroup/cgroup.controllers
+     #+END_SRC
+   + mount confirmation
+     #+BEGIN_SRC
+workstation$ mount | grep cgroup
+tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,mode=755,inode64)
+cgroup2 on /sys/fs/cgroup/unified type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
+cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,name=systemd)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+cgroup on /sys/fs/cgroup/rdma type cgroup (rw,nosuid,nodev,noexec,relatime,rdma)
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpu,cpuacct)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+cgroup on /sys/fs/cgroup/misc type cgroup (rw,nosuid,nodev,noexec,relatime,misc)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls,net_prio)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+     #+END_SRC
+** cgroup v2 change
+* QA
+** How to determine the cgroup version
+  #+BEGIN_SRC
+workstation$ docker info | grep -i cgroup
+ Cgroup Driver: cgroupfs
+ Cgroup Version: 1
+  #+END_SRC
+** How to check cgroup v2 is enabled.
+   + cgroup v2 is enabled if the file exists
+     #+BEGIN_SRC
+workstation$ cat /sys/fs/cgroup/cgroup.controllers
+     #+END_SRC
+   + systemctl command
+     #+BEGIN_SRC
+workstation$ systemctl show --property=DefaultCPUAccounting
+     #+END_SRC
+** How to Enabling Hybrid Mode(cgroup v1/cgroup v2)
+   + Before change
+     #+BEGIN_SRC
+workstation$ mount | grep cgroup
+tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,mode=755,inode64)
+cgroup2 on /sys/fs/cgroup/unified type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
+cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,name=systemd)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+cgroup on /sys/fs/cgroup/rdma type cgroup (rw,nosuid,nodev,noexec,relatime,rdma)
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpu,cpuacct)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+cgroup on /sys/fs/cgroup/misc type cgroup (rw,nosuid,nodev,noexec,relatime,misc)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls,net_prio)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+     #+END_SRC
+   + Edit your GRUB configuration:
+   #+BEGIN_SRC
+sudo nano /etc/default/grub
+   #+END_SRC
+   + Add the following parameter to GRUB_CMDLINE_LINUX:
+     #+BEGIN_SRC
+systemd.unified_cgroup_hierarchy=1 # Support cgroup v2
+     #+END_SRC
+   + Update GRUB and reboot:
+     #+BEGIN_SRC
+sudo update-grub
+sudo reboot
+     #+END_SRC
+   + check cgroup v1 or cgroup v2
+     #+BEGIN_SRC
+cgroup v1$ stat -fc %T /sys/fs/cgroup/
+tmpfs
+cgroup v2$ stat -fc %T /sys/fs/cgroup/
+cgroup2fs
+     #+END_SRC
+   + After change
+     #+BEGIN_SRC
+workstation$ mount | grep cgroup
+cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
+workstation$ docker info | grep Cgroup
+ Cgroup Driver: systemd
+ Cgroup Version: 2
+     #+END_SRC

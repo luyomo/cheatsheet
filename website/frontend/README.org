@@ -1,0 +1,21 @@
+* Todo
+** Basic
+ + Tab01(AKS)
+   - Subscription
+   - Cluster Name
+   - Location
+   - Kubernetes version
+   - Latest Kubernetes version
+   - Node pool
+     x Node pool name
+     x Node pool count
+     x Node pool vmsize
+     x Min count
+     x max count
+ + Tab02(Kubernetes)
+   - tab: service
+   - tab: kubectl get nodes -o wide
+   - tab: PV
+   - tab: PVC
+   - tab: statefulset
+   - tab: pod

@@ -1,0 +1,22 @@
+* Service Setup
+  https://github.com/bzdgn/docker-spring-boot-java-web-service-example.git
+
+  https://hub.docker.com/_/openjdk
+  
+  #+BEGIN_SRC
+ws$ docker run --cap-add=SYS_PTRACE -p 8080:8080 docker-java-hello-world-app
+ws$ docker exec -it d383b0d1b72c bash
+
+root@fed84610fdf2:/app# java -version 
+openjdk version "11.0.8" 2020-07-14
+OpenJDK Runtime Environment 18.9 (build 11.0.8+10)
+OpenJDK 64-Bit Server VM 18.9 (build 11.0.8+10, mixed mode)
+
+root@fed84610fdf2:/app# jhsdb jmap --pid 1 --heap | grep GC 
+Garbage-First (G1) GC with 2 thread(s)
+  #+END_SRC
+  
+
+* Reference
+  https://www.openlogic.com/openjdk-downloads?page=32
+  11.0.8: 
