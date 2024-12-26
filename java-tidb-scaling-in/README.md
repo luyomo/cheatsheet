@@ -43,14 +43,14 @@ These options caused failures in JMeter during scaling in.
 
 ## **Screenshot**
 - Single insert  
-  ![execution log](./png/001.png =x250)
-  ![query result](./png/002.png =x250)
+  ![execution log](./png/001.png)
+  ![query result](./png/002.png)
 - Batch insert  
-  ![execution log](./png/003.png =x250)
-  ![query result](./png/004.png =x250)
+  ![execution log](./png/003.png)
+  ![query result](./png/004.png)
 - Multiple queries  
-  ![execution log](./png/003.png =x250)
-  ![query result](./png/004.png =x250)
+  ![execution log](./png/003.png)
+  ![query result](./png/004.png)
 
 
 # Command
