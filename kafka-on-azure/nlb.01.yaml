@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka0
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-dns-label-name: kafka0
+spec:
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    statefulset.kubernetes.io/pod-name: crs-kafka-0
+  ports:
+  - protocol: TCP
+    port: 9092
+    targetPort: 9092
