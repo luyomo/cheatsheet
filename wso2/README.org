@@ -1,0 +1,147 @@
+* Reference
+  https://github.com/wso2/kubernetes-apim/blob/v4.0.0.1/simple/am-single/values.yaml
+- Replace ingress version from extensions/v1beta1 to networking.k8s.io/v1
+  #+BEGIN_SRC
+helm install --dependency-update wso2test simple/am-single --version 4.0.0-1 --namespace wso2
+
+kubectl apply -f https://github.com/wso2/k8s-api-operator/releases/download/v2.0.3/api-operator-configs.yaml
+  #+END_SRC
+* Install on docker
+** wso2am
+   #+BEGIN_SRC
+$ docker pull wso2/wso2am:4.4.0
+
+$ docker run -d --network host --name wso2am wso2/wso2am:4.4.0
+  ## 9443: WSO2 API Manager's management console
+  ## 8243: API Gateway
+  ## 8280: API Publisher
+
+$ docker cp wso2am:/home/wso2carbon/wso2am-4.4.0/repository/conf/deployment.toml ./
+$ sed -i -e 's|localhost|192.168.1.106|g' ./deployment.toml
+
+$ docker run -d --network host -v ~/workspace/wso2/deployment.toml:/home/wso2carbon/wso2am-4.4.0/repository/conf/deployment.toml --name wso2am wso2/wso2am:4.4.0
+   #+END_SRC
+** Create one restapi
+- context: api
+- version: v1
+- endpoint: http://192.168.1.101:8080
+  #+BEGIN_SRC
+$ curl https://192.168.1.106:8243/api/v1/api/v1/sapix-kanji --insecure 
+{"code":"900902","message":"Missing Credentials","description":"Invalid Credentials. Make sure your API invocation call has a header: 'Authorization : Bearer ACCESS_TOKEN' or 'Authorization : Basic ACCESS_TOKEN' or 'ApiKey : API_KEY'"}
+  #+END_SRC
+
+** Create Key and grant permission
+   - Go to https://192.168.1.106:9443/devportal/apis
+   - [ADD NEW APPLICATION]
+     + application name: testapp
+   - [Subscriptions]
+     + SUBSCRIBE APIS
+     + Select the [testapi] and click [SUBSCRIBE] 
+   - Go to Production KEYS] -> [OAuth2 Tokens]
+     + Check [Password]/[Client Credentials]
+     + Click Generate Keys to keep the [Consume Key] and [Consumer Secret]
+       - RfnWGv2Y4G95dOjAdxpqxNdm6_8a
+       - rBZtCScCyOZg0D8jzunxGft9OL8a
+   - Use [echo -n "client_key:client_secret" | base64] to get the key
+   - Fetch the token
+     #+BEGIN_SRC
+$ curl -k -X POST https://192.168.1.106:9443/oauth2/token -d "grant_type=client_credentials" -H "Authorization: Basic UmZuV0d2Mlk0Rzk1ZE9qQWR4cHF4TmRtNl84YTpyQlp0Q1NjQ3lPWmcwRDhqenVueEdmdDlPTDhh"
+{"access_token":"eyJ4NXQiOiJOV1F3T1RSa01qQTVPV0ZqTm1VMk56QmxOVE0zWkRVd09EVXpZall3Wm1KbFpUTmtaREE0T0RVNFpUVXdaR0l3Tm1VeU1tWm1aVE5oWkRreU5qUTJaQSIsImtpZCI6Ik5XUXdPVFJrTWpBNU9XRmpObVUyTnpCbE5UTTNaRFV3T0RVellqWXdabUpsWlROa1pEQTRPRFU0WlRVd1pHSXdObVV5TW1abVpUTmhaRGt5TmpRMlpBX1JTMjU2IiwidHlwIjoiYXQrand0IiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJiZDI1MGZlYy0zNTExLTQwNDUtYTY4Yy1iZmEyZmI0MDQxNzQiLCJhdXQiOiJBUFBMSUNBVElPTiIsImF1ZCI6IlJmbldHdjJZNEc5NWRPakFkeHBxeE5kbTZfOGEiLCJuYmYiOjE3Mzg2NDQ3MDAsImF6cCI6IlJmbldHdjJZNEc5NWRPakFkeHBxeE5kbTZfOGEiLCJzY29wZSI6ImRlZmF1bHQiLCJpc3MiOiJodHRwczovLzE5Mi4xNjguMS4xMDY6OTQ0My9vYXV0aDIvdG9rZW4iLCJleHAiOjE3Mzg2NDgzMDAsImlhdCI6MTczODY0NDcwMCwianRpIjoiMjRjMjI0MTEtZDZiNy00YmViLWE0NTMtYzViNzlkNDQyMzUzIiwiY2xpZW50X2lkIjoiUmZuV0d2Mlk0Rzk1ZE9qQWR4cHF4TmRtNl84YSJ9.NW2H82PQLapy3kGJwfPQ4BBEtBqU_K1VVyj2gHvVI941QcMRjkdiaR-AloJB0tImQw1IEBwEmdPSZHosruPEnfFBeuZwdWvDT-EXL0TJ2pT8CvFeiup7ahzkJL4lE_DE2jDTysKhVooRxu54y8lZLD6IV7bGgG2EUhEv11Oa3eKqji_DAoziAcH5s9A3K9KJ9Fmow8Wmwl5tiokw6CwTqfW8p1ghOmjwb74nhAsnwQFdbvmBN0a_jvJJfl4tfzvYvYDzWirw9srrkQxwyJm47VeuCGPzdHTlFe6CD8Env9PoMJGd06L82U0uXOxN2F3-RwlcMDssJoW9_-Qj0b8XbA","scope":"default","token_type":"Bearer","expires_in":3600}
+     #+END_SRC
+   - Call the api
+     #+BEGIN_SRC
+curl -X POST https://192.168.1.106:8243/api/v1/api/v1/sapix-kanji -H "Authorization: Bearer eyJ4NXQiOiJOV1F3T1RSa01qQTVPV0ZqTm1VMk56QmxOVE0zWkRVd09EVXpZall3Wm1KbFpUTmtaREE0T0RVNFpUVXdaR0l3Tm1VeU1tWm1aVE5oWkRreU5qUTJaQSIsImtpZCI6Ik5XUXdPVFJrTWpBNU9XRmpObVUyTnpCbE5UTTNaRFV3T0RVellqWXdabUpsWlROa1pEQTRPRFU0WlRVd1pHSXdObVV5TW1abVpUTmhaRGt5TmpRMlpBX1JTMjU2IiwidHlwIjoiYXQrand0IiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJiZDI1MGZlYy0zNTExLTQwNDUtYTY4Yy1iZmEyZmI0MDQxNzQiLCJhdXQiOiJBUFBMSUNBVElPTiIsImF1ZCI6IlJmbldHdjJZNEc5NWRPakFkeHBxeE5kbTZfOGEiLCJuYmYiOjE3Mzg2NDQ3MDAsImF6cCI6IlJmbldHdjJZNEc5NWRPakFkeHBxeE5kbTZfOGEiLCJzY29wZSI6ImRlZmF1bHQiLCJpc3MiOiJodHRwczovLzE5Mi4xNjguMS4xMDY6OTQ0My9vYXV0aDIvdG9rZW4iLCJleHAiOjE3Mzg2NDgzMDAsImlhdCI6MTczODY0NDcwMCwianRpIjoiMjRjMjI0MTEtZDZiNy00YmViLWE0NTMtYzViNzlkNDQyMzUzIiwiY2xpZW50X2lkIjoiUmZuV0d2Mlk0Rzk1ZE9qQWR4cHF4TmRtNl84YSJ9.NW2H82PQLapy3kGJwfPQ4BBEtBqU_K1VVyj2gHvVI941QcMRjkdiaR-AloJB0tImQw1IEBwEmdPSZHosruPEnfFBeuZwdWvDT-EXL0TJ2pT8CvFeiup7ahzkJL4lE_DE2jDTysKhVooRxu54y8lZLD6IV7bGgG2EUhEv11Oa3eKqji_DAoziAcH5s9A3K9KJ9Fmow8Wmwl5tiokw6CwTqfW8p1ghOmjwb74nhAsnwQFdbvmBN0a_jvJJfl4tfzvYvYDzWirw9srrkQxwyJm47VeuCGPzdHTlFe6CD8Env9PoMJGd06L82U0uXOxN2F3-RwlcMDssJoW9_-Qj0b8XbA" --insecure
+{"message":"Sapix Kanji received"}
+     #+END_SRC
+** Difference with message_formatter
+*** Test with file
+- Test with message_format set
+   #+BEGIN_SRC
+The body data: <--------------------------c2dac112da7a2c38
+Content-Disposition: form-data; name="file"; filename="testdata.txt"
+Content-Type: text/plain
+
+This is the test data from file
+
+--------------------------c2dac112da7a2c38--
+> 
+   #+END_SRC
+- Test using default setting
+   #+BEGIN_SRC
+Content-Disposition: form-data; name="file"; filename="testdata.txt"
+Content-Type: text/plain
+
+This is the test data from file
+
+--------------------------cf23d1a89cba8b68--
+
+   #+END_SRC
+
+*** Test with file and text form
+- Test using default setting
+#+BEGIN_SRC
+$ curl -X POST https://192.168.1.106:8243/api/v1/api/v1/sapix-kanji -H "Authorization: Bearer eyJ4NXQiOiJOV1F3T1RSa01qQTVPV0ZqTm1VMk56QmxOVE0zWkRVd09EVXpZall3Wm1KbFpUTmtaREE0T0RVNFpUVXdaR0l3Tm1VeU1tWm1aVE5oWkRreU5qUTJaQSIsImtpZCI6Ik5XUXdPVFJrTWpBNU9XRmpObVUyTnpCbE5UTTNaRFV3T0RVellqWXdabUpsWlROa1pEQTRPRFU0WlRVd1pHSXdObVV5TW1abVpUTmhaRGt5TmpRMlpBX1JTMjU2IiwidHlwIjoiYXQrand0IiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJiZDI1MGZlYy0zNTExLTQwNDUtYTY4Yy1iZmEyZmI0MDQxNzQiLCJhdXQiOiJBUFBMSUNBVElPTiIsImF1ZCI6IlJmbldHdjJZNEc5NWRPakFkeHBxeE5kbTZfOGEiLCJuYmYiOjE3Mzg2NDQ3MDAsImF6cCI6IlJmbldHdjJZNEc5NWRPakFkeHBxeE5kbTZfOGEiLCJzY29wZSI6ImRlZmF1bHQiLCJpc3MiOiJodHRwczovLzE5Mi4xNjguMS4xMDY6OTQ0My9vYXV0aDIvdG9rZW4iLCJleHAiOjE3Mzg2NDgzMDAsImlhdCI6MTczODY0NDcwMCwianRpIjoiMjRjMjI0MTEtZDZiNy00YmViLWE0NTMtYzViNzlkNDQyMzUzIiwiY2xpZW50X2lkIjoiUmZuV0d2Mlk0Rzk1ZE9qQWR4cHF4TmRtNl84YSJ9.NW2H82PQLapy3kGJwfPQ4BBEtBqU_K1VVyj2gHvVI941QcMRjkdiaR-AloJB0tImQw1IEBwEmdPSZHosruPEnfFBeuZwdWvDT-EXL0TJ2pT8CvFeiup7ahzkJL4lE_DE2jDTysKhVooRxu54y8lZLD6IV7bGgG2EUhEv11Oa3eKqji_DAoziAcH5s9A3K9KJ9Fmow8Wmwl5tiokw6CwTqfW8p1ghOmjwb74nhAsnwQFdbvmBN0a_jvJJfl4tfzvYvYDzWirw9srrkQxwyJm47VeuCGPzdHTlFe6CD8Env9PoMJGd06L82U0uXOxN2F3-RwlcMDssJoW9_-Qj0b8XbA" --insecure -F "file=@testdata.txt" -F "user_name=test001"
+--------------------------59b4fa6f56a3560b
+Content-Disposition: form-data; name="file"; filename="testdata.txt"
+Content-Type: text/plain
+
+This is the test data from file
+
+--------------------------59b4fa6f56a3560b
+Content-Disposition: form-data; name="user_name"
+
+test001
+--------------------------59b4fa6f56a3560b--
+#+END_SRC
+- Test with message_format set
+#+BEGIN_SRC
+--------------------------9a56fe4304b71ba6
+Content-Disposition: form-data; name="file"; filename="testdata.txt"
+Content-Type: text/plain
+
+This is the test data from file
+
+--------------------------9a56fe4304b71ba6
+Content-Disposition: form-data; name="user_name"
+
+test001
+--------------------------9a56fe4304b71ba6--
+#+END_SRC
+*** Rest with return file
+- Test using default setting
+    #+BEGIN_SRC
+HTTP/1.1 200 OK
+activityid: 31d9451b-f850-4b7c-83ce-48bc0caeb5ec
+Access-Control-Expose-Headers: 
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: POST
+Access-Control-Allow-Headers: authorization,Access-Control-Allow-Origin,Content-Type,SOAPAction,apikey,Internal-Key,Authorization,ApiKey
+Content-Type: multipart/form-data; boundary=3181ae694d38acbf30ddd8549e89a850cb66825f3459ca59240aacb37a75
+Date: Tue, 04 Feb 2025 06:41:55 GMT
+Transfer-Encoding: chunked
+
+--3181ae694d38acbf30ddd8549e89a850cb66825f3459ca59240aacb37a75
+Content-Disposition: form-data; name="file"; filename="return.txt"
+Content-Type: application/octet-stream
+
+&{0x4000518060}
+
+--3181ae694d38acbf30ddd8549e89a850cb66825f3459ca59240aacb37a75
+Content-Disposition: form-data; name="message"
+
+File download success
+--3181ae694d38acbf30ddd8549e89a850cb66825f3459ca59240aacb37a75--
+
+    #+END_SRC
+- Test with message_format set
+  #+BEGIN_SRC
+  #+END_SRC
+
+** ExpandingMessageFormatter
+https://github.com/wso2/carbon-mediation/blob/master/components/mediation-monitor/message-relay/org.wso2.carbon.relay/src/main/java/org/wso2/carbon/relay/ExpandingMessageFormatter.java
+
+https://github.com/wso2/carbon-mediation/blob/master/components/mediation-monitor/message-relay/org.wso2.carbon.relay/src/main/java/org/wso2/carbon/relay/BinaryRelayBuilder.java
+
+org.apache.axis2.transport.http.MultipartFormDataFormatter
+
+org.apache.axis2.builder.MultipartFormDataBuilder
