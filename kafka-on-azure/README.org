@@ -1,0 +1,58 @@
+* SSL setup
++ Generate the CA
+  #+BEGIN_SRC
+$ openssl genpkey -algorithm RSA -out ~/cheatsheet/kafka-on-azure/ssl/ca.key
+$ ls
+ca.key
+
+$ openssl req -x509 -new -key ~/cheatsheet/kafka-on-azure/ssl/ca.key -days 3650 -out ~/cheatsheet/kafka-on-azure/ssl/ca.crt
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:JP
+State or Province Name (full name) [Some-State]:Tokyo
+Locality Name (eg, city) []:Tokyo
+Organization Name (eg, company) [Internet Widgits Pty Ltd]:PingCAP
+Organizational Unit Name (eg, section) []:PreSale
+Common Name (e.g. server FQDN or YOUR name) []:pingcap.kafka.com
+Email Address []:
+
+$ ls
+ca.crt ca.key
+  #+END_SRC
+
++ Server certificate
+   #+BEGIN_SRC
+$ openssl req -new -newkey rsa:4096 -nodes -keyout /home/pi/workspace/cheatsheet/kafka-on-azure/ssl/server.key \ 
+-out /home/pi/workspace/cheatsheet/kafka-on-azure/ssl/server.csr -subj "/C=JP/ST=Tokyo/L=Tokyo/O=PingCAP/CN=pingcap.kafka.com/emailAddress=jay@pingcap.kafka.com"
+
+$ ls
+
+ca.crt  ca.key  server.csr  server.key
+
+$ more san.cnf 
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=pingcap.kafka.com
+DNS.2=*.pingcap.kafka.com
+
+$ openssl x509 -req -in ~/cheatsheet/kafka-on-azure/ssl/server.csr -CA ~/cheatsheet/kafka-on-azure/ssl/ca.crt -CAkey ~/cheatsheet/kafka-on-azure/ssl/ca.key -CAcreateserial -out ~/cheatsheet/kafka-on-azure/ssl/server.crt -days 3650 -extfile ~/cheatsheet/kafka-on-azure/ssl/san.cnf
+
+$ ls
+ca.crt  ca.key  ca.srl  san.cnf  server.crt  server.csr  server.key
+   #+END_SRC
+
+- Create kafka format key
+  #+BEGIN_SRC
+$ openssl pkcs12 -export -in ~/cheatsheet/kafka-on-azure/ssl/server.crt -inkey ~/cheatsheet/kafka-on-azure/ssl/server.key -name kafka-broker -out ~/cheatsheet/kafka-on-azure/ssl/kafka.p12
+Enter Export Password: 1234Abcd
+Verifying - Enter Export Password: 1234Abcd
+  #+END_SRC

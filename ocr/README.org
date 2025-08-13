@@ -1,0 +1,21 @@
+* Install on the debian
+  #+BEGIN_SRC
+sudo apt-get install tesseract-ocr
+sudo apt-get install tesseract-ocr-chi-sim
+sudo apt-get install tesseract-ocr-jpn
+sudo pip3 install pytesseract 
+  #+END_SRC
+
+* Hello World
+  #+BEGIN_SRC
+from PIL import Image
+import pytesseract
+
+# Load image
+image_path = "/tmp/002.png"
+image = Image.open(image_path)
+
+# Perform OCR
+text = pytesseract.image_to_string(image, lang="chi_sim")
+print(text)
+  #+END_SRC

@@ -21,6 +21,11 @@ $ sed -i -e 's|localhost|192.168.1.106|g' ./deployment.toml
 
 $ docker run -d --network host -v ~/workspace/wso2/deployment.toml:/home/wso2carbon/wso2am-4.4.0/repository/conf/deployment.toml --name wso2am wso2/wso2am:4.4.0
    #+END_SRC
+*** wso2mi
+    #+BEGIN_SRC
+docker run -d --name wso2mi --network host wso2/wso2mi:latest
+# 8290/9164
+    #+END_SRC
 ** Create one restapi
 - context: api
 - version: v1
@@ -135,6 +140,27 @@ File download success
     #+END_SRC
 - Test with message_format set
   #+BEGIN_SRC
+HTTP/1.1 200 OK
+activityid: d464c5cb-5d22-4b90-96f4-6bae7328dac5
+Access-Control-Expose-Headers: 
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: POST
+Access-Control-Allow-Headers: authorization,Access-Control-Allow-Origin,Content-Type,SOAPAction,apikey,Internal-Key,Authorization,ApiKey
+Content-Type: multipart/form-data; boundary=87a3ef4398ea74bfb9c775f3aae6567c65d54ffdc15b5701af571ace161a
+Date: Tue, 04 Feb 2025 06:52:45 GMT
+Transfer-Encoding: chunked
+
+--87a3ef4398ea74bfb9c775f3aae6567c65d54ffdc15b5701af571ace161a
+Content-Disposition: form-data; name="file"; filename="return.txt"
+Content-Type: application/octet-stream
+
+&{0x4000518720}
+
+--87a3ef4398ea74bfb9c775f3aae6567c65d54ffdc15b5701af571ace161a
+Content-Disposition: form-data; name="message"
+
+File download success
+--87a3ef4398ea74bfb9c775f3aae6567c65d54ffdc15b5701af571ace161a--
   #+END_SRC
 
 ** ExpandingMessageFormatter
