@@ -5,41 +5,42 @@ import os
 from datetime import datetime
 import requests
 from requests.auth import HTTPDigestAuth
+from typing import Optional, Dict, Any
 
 app = func.FunctionApp()
 
-@app.function_name(name="HttpTrigger1")
-@app.route(route="hello", auth_level=func.AuthLevel.ANONYMOUS)
-def hello_world(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Python HTTP trigger function processed a request.')
-
-    # Get name from query string or request body
-    name = req.params.get('name')
-    if not name:
-        try:
-            req_body = req.get_json()
-            name = req_body.get('name')
-        except ValueError:
-            pass
-
-    # Personalized response
-    if name:
-        message = f"Hello, {name}! This Azure Function executed successfully at {datetime.utcnow().isoformat()}Z"
-        status_code = 200
-    else:
-        message = "Please pass a name on the query string or in the request body to get a personalized greeting."
-        status_code = 400
-
-    # Return HTTP response
-    return func.HttpResponse(
-        json.dumps({
-            "message": message,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "success": True if name else False
-        }),
-        status_code=status_code,
-        mimetype="application/json"
-    )
+#@app.function_name(name="HttpTrigger1")
+#@app.route(route="hello", auth_level=func.AuthLevel.ANONYMOUS)
+#def hello_world(req: func.HttpRequest) -> func.HttpResponse:
+#    logging.info('Python HTTP trigger function processed a request.')
+#
+#    # Get name from query string or request body
+#    name = req.params.get('name')
+#    if not name:
+#        try:
+#            req_body = req.get_json()
+#            name = req_body.get('name')
+#        except ValueError:
+#            pass
+#
+#    # Personalized response
+#    if name:
+#        message = f"Hello, {name}! This Azure Function executed successfully at {datetime.utcnow().isoformat()}Z"
+#        status_code = 200
+#    else:
+#        message = "Please pass a name on the query string or in the request body to get a personalized greeting."
+#        status_code = 400
+#
+#    # Return HTTP response
+#    return func.HttpResponse(
+#        json.dumps({
+#            "message": message,
+#            "timestamp": datetime.utcnow().isoformat() + "Z",
+#            "success": True if name else False
+#        }),
+#        status_code=status_code,
+#        mimetype="application/json"
+#    )
 
 @app.function_name(name="ResumeTiDBScheduled")
 @app.schedule(
@@ -48,6 +49,7 @@ def hello_world(req: func.HttpRequest) -> func.HttpResponse:
     run_on_startup=False
 )  
 def resume_tidb_scheduled(mytimer: func.TimerRequest) -> None:
+    disableSchedule  = os.environ.get("DISABLE_SCHEDULE", "false")
     current_cron_schedule = os.environ.get("RESUME_SCHEDULE_CRON", "N/A")
     cluster_id  = os.environ.get("TIDB_CLOUD_CLUSTER_ID", "N/A")
     public_key  = os.environ.get("TIDB_CLOUD_PUBLIC_KEY", "N/A")
@@ -55,26 +57,34 @@ def resume_tidb_scheduled(mytimer: func.TimerRequest) -> None:
     logging.info(f'Trigger the TiDB pause. Plan: {current_cron_schedule}, Timestamp: {datetime.now().isoformat()}')
 
     url = f"https://dedicated.tidbapi.com/v1beta1/clusters/{cluster_id}:resumeCluster"
+    if disableSchedule == "true":
+        return
 
     try:
+        res = get_cluster_status(cluster_id, public_key, private_key)
+        logging.info(f"Cluster status: {res['state']}")
+        if res['state'] == "ACTIVE": 
+            return
+
+        if res['state'] == "RESUMING": 
+            return
+
         response = requests.post(
             url,
             auth=HTTPDigestAuth(public_key, private_key),
             timeout=30
         )
         if response.status_code == 200:
-            return {
-                "success": True,
-                "status_code": response.status_code,
-                "message": response.text
-            }
+            return
         else:
+            logging.error(f"status code: {response.status_code}, message: {response.text}")
             return {
                 "success": False,
                 "status_code": response.status_code,
                 "message": response.text
             }
     except Exception as e:
+        logging.error(f"status code: -1, message: {str(e)}")
         return {
             "success": False,
             "status_code": -1,
@@ -87,27 +97,36 @@ def resume_tidb_scheduled(mytimer: func.TimerRequest) -> None:
     arg_name="mytimer", 
     run_on_startup=False
 )  
-def resume_tidb_scheduled(mytimer: func.TimerRequest) -> None:
+def pause_tidb_scheduled(mytimer: func.TimerRequest) -> None:
+    disableSchedule  = os.environ.get("DISABLE_SCHEDULE", "false")
     current_cron_schedule = os.environ.get("PAUSE_SCHEDULE_CRON", "N/A")
     cluster_id  = os.environ.get("TIDB_CLOUD_CLUSTER_ID", "N/A")
     public_key  = os.environ.get("TIDB_CLOUD_PUBLIC_KEY", "N/A")
     private_key = os.environ.get("TIDB_CLOUD_PRIVATE_KEY", "N/A")
     logging.info(f'Trigger the TiDB pause. Plan: {current_cron_schedule}, Timestamp: {datetime.now().isoformat()}')
 
+
     url = f"https://dedicated.tidbapi.com/v1beta1/clusters/{cluster_id}:pauseCluster"
+    if disableSchedule == "true":
+        return
 
     try:
+        res = get_cluster_status(cluster_id, public_key, private_key)
+        logging.info(f"--- response: {res}")
+        logging.info(f"--- response: {res['state']}")
+        if res['state'] == "PAUSED": 
+            return
+
+        if res['state'] == "PAUSING": 
+            return
+
         response = requests.post(
             url,
             auth=HTTPDigestAuth(public_key, private_key),
             timeout=30
         )
         if response.status_code == 200:
-            return {
-                "success": True,
-                "status_code": response.status_code,
-                "message": response.text
-            }
+            return
         else:
             return {
                 "success": False,
@@ -115,8 +134,26 @@ def resume_tidb_scheduled(mytimer: func.TimerRequest) -> None:
                 "message": response.text
             }
     except Exception as e:
+        logging.info(f"Error: {e}")
         return {
             "success": False,
             "status_code": -1,
             "message": str(e)
         }
+
+def get_cluster_status(cluster_id: str, public_key: str, private_key: str) -> Optional[Dict[str, Any]]:
+    url = f"https://dedicated.tidbapi.com/v1beta1/clusters/{cluster_id}"
+    
+    try:
+        response = requests.get(
+            url,
+            auth=requests.auth.HTTPDigestAuth(public_key, private_key),
+            headers={'Accept': 'application/json'},
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+        
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to get the cluster status: {e}")
+        return None
