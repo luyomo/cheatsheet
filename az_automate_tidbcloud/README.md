@@ -6,7 +6,7 @@ The script uses two timer-triggered Azure Functions:
 - ResumeTiDBScheduled: Resumes the cluster at a specified time.
 - PauseTiDBScheduled: Pauses the cluster at a specified time.
 The functions communicate with the TiDB Cloud API using an authenticated HTTP request to check the cluster's status and then send a pause or resume command.
-Please refer to (TiDB Cloud API)[https://docs.pingcap.com/tidbcloud/api/v1beta1/dedicated/#tag/Cluster/operation/ClusterService_PauseCluster]
+Please refer to [TiDB Cloud API](https://docs.pingcap.com/tidbcloud/api/v1beta1/dedicated/#tag/Cluster/operation/ClusterService_PauseCluster)
 
 ## Prerequisites
 - Python 3.12 or a later version.
@@ -32,7 +32,7 @@ The functions use environment variables for configuration. You can set these in 
 
 ```
 
-Please refer to (API KEY)[https://docs.pingcap.com/tidbcloud/api/v1beta1/dedicated/#section/Get-Started/Prerequisites] to get the cluster api key.
+Please refer to [API KEY](https://docs.pingcap.com/tidbcloud/api/v1beta1/dedicated/#section/Get-Started/Prerequisites) to get the cluster api key.
 Environment Variables
 - TIDB_CLOUD_CLUSTER_ID: The unique ID of your TiDB Cloud cluster.
 - TIDB_CLOUD_PUBLIC_KEY: Your TiDB Cloud API Public Key.
