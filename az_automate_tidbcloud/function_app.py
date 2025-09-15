@@ -9,39 +9,6 @@ from typing import Optional, Dict, Any
 
 app = func.FunctionApp()
 
-#@app.function_name(name="HttpTrigger1")
-#@app.route(route="hello", auth_level=func.AuthLevel.ANONYMOUS)
-#def hello_world(req: func.HttpRequest) -> func.HttpResponse:
-#    logging.info('Python HTTP trigger function processed a request.')
-#
-#    # Get name from query string or request body
-#    name = req.params.get('name')
-#    if not name:
-#        try:
-#            req_body = req.get_json()
-#            name = req_body.get('name')
-#        except ValueError:
-#            pass
-#
-#    # Personalized response
-#    if name:
-#        message = f"Hello, {name}! This Azure Function executed successfully at {datetime.utcnow().isoformat()}Z"
-#        status_code = 200
-#    else:
-#        message = "Please pass a name on the query string or in the request body to get a personalized greeting."
-#        status_code = 400
-#
-#    # Return HTTP response
-#    return func.HttpResponse(
-#        json.dumps({
-#            "message": message,
-#            "timestamp": datetime.utcnow().isoformat() + "Z",
-#            "success": True if name else False
-#        }),
-#        status_code=status_code,
-#        mimetype="application/json"
-#    )
-
 @app.function_name(name="ResumeTiDBScheduled")
 @app.schedule(
     schedule=os.environ.get("RESUME_SCHEDULE_CRON", "0 0 7 * * *"), 

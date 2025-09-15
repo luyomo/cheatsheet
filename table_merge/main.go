@@ -34,6 +34,7 @@ type TableInfo struct {
 }
 
 var (
+	opsType    string
 	strTpl     string
 	srcDBInfo  DBConnInfo
 	destDBInfo DBConnInfo
@@ -59,6 +60,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&strTpl, "template", "t", "", "template command for dumpling")
 
 	// Define flags for source and destination databases
+	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateMapping]")
+
 	rootCmd.PersistentFlags().StringVar(&srcDBInfo.Host, "src-host", "", "Source database host")
 	rootCmd.PersistentFlags().IntVar(&srcDBInfo.Port, "src-port", 4000, "Source database port")
 	rootCmd.PersistentFlags().StringVar(&srcDBInfo.User, "src-user", "", "Source database user")
@@ -80,30 +83,40 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if strTpl == "" {
+	if opsType == "" {
+		fmt.Printf("Please provide ops type. \n")
+		return
+	}
+
+	if opsType == "generateDumpling" && strTpl == "" {
 		fmt.Printf("Please provide template command for dumpling \n")
 		return
 	}
 
 	tableStructure := []TableInfo{}
 
-	// fmt.Printf("template: %s \n", strTpl)
-	// return
-
-	err := fetch_table_def("source", &tableStructure, srcDBInfo, []string{
-		"orderdb_01",
-	})
+	err := fetch_table_def("source", &tableStructure, srcDBInfo, strings.Split(srcDBInfo.DBName, ","))
 	if err != nil {
 		fmt.Printf("Failed to fetch table definition: %v \n", err)
 		return
 	}
 
-	// fmt.Printf("Source table info: %#v \n\n", tableStructure)
-	err = fetch_table_def("dest", &tableStructure, destDBInfo, []string{
-		"tidb_orderdb",
-	})
+	if opsType == "sourceAnalyze" {
+		fmt.Printf("Starting to analyze the source table and check the table structure \n")
+		// fmt.Printf("%#v \n", tableStructure)
+		for idx, table := range tableStructure {
+			if len(table.SrcTableInfo) > 2 {
+				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo[0], len(table.SrcTableInfo))
+			}
 
-	// fmt.Printf("Dest table info: %#v \n", tableStructure)
+		}
+		return
+	}
+
+	// if opsType == "generateMapping" {
+	err = fetch_table_def("dest", &tableStructure, destDBInfo, strings.Split(destDBInfo.DBName, ","))
+	// }
 
 	for _, tableInfo := range tableStructure {
 		fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
@@ -136,13 +149,85 @@ func main() {
 		errorWriter = os.Stdout
 	}
 
+	// Convert the tableInfo like source: ["TableA, TableB01, TableB02"]  dest: ["TableA, TableB"]
+	// to Source: [TableA], Dest: [TableA]
+	//   and Source: [TableB01, TableB02], Dest: [TableB]
+	// If both source and dest has multiple tables, separate those table with same name.
+	convertedTableStructure := []TableInfo{}
+	for _, tableInfo := range tableStructure {
+		if len(tableInfo.SrcTableInfo) <= 1 || len(tableInfo.DestTableInfo) <= 1 {
+			convertedTableStructure = append(convertedTableStructure, tableInfo)
+			continue
+		}
+
+		if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) > 1 {
+			foundTable := []string{}
+			for _, srcTable := range tableInfo.SrcTableInfo {
+				for _, destTable := range tableInfo.DestTableInfo {
+					if (strings.Split(srcTable, "."))[1] == (strings.Split(destTable, "."))[1] {
+						fmt.Printf("Same table name with layout: %s vs %s \n", srcTable, destTable)
+						convertedTableStructure = append(convertedTableStructure, TableInfo{
+							MD5Columns:          tableInfo.MD5Columns,
+							MD5ColumnsWithTypes: tableInfo.MD5ColumnsWithTypes,
+							SrcTableInfo:        []string{srcTable},
+							DestTableInfo:       []string{destTable},
+						})
+						foundTable = append(foundTable, srcTable)
+					}
+				}
+			}
+
+			tmpSrcTable := []string{}
+			tmpDestTable := []string{}
+			for _, srcTable := range tableInfo.SrcTableInfo {
+				isFound := false
+				for _, foundSrc := range foundTable {
+					if srcTable == foundSrc {
+						isFound = true
+						break
+					}
+				}
+				if !isFound {
+					tmpSrcTable = append(tmpSrcTable, srcTable)
+				}
+			}
+
+			for _, destTable := range tableInfo.DestTableInfo {
+				isFound := false
+				for _, foundSrc := range foundTable {
+					// Check against the base name of the srcTable that was found
+					if (strings.Split(destTable, "."))[1] == (strings.Split(foundSrc, "."))[1] {
+						isFound = true
+						break
+					}
+				}
+				if !isFound {
+					tmpDestTable = append(tmpDestTable, destTable)
+				}
+			}
+
+			if len(tmpSrcTable) > 0 && len(tmpDestTable) > 0 {
+				convertedTableStructure = append(convertedTableStructure, TableInfo{
+					MD5Columns:          tableInfo.MD5Columns,
+					MD5ColumnsWithTypes: tableInfo.MD5ColumnsWithTypes,
+					SrcTableInfo:        tmpSrcTable,
+					DestTableInfo:       tmpDestTable,
+				})
+			}
+		}
+	}
+	// for _, tableInfo := range convertedTableStructure {
+	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
+	// }
+
+	tableStructure = convertedTableStructure
+
 	// fmt.Printf("--------- Start to prepare dumpling command ----- ---- \n")
 	for _, tableInfo := range tableStructure {
 		// Case 1: One-to-one mapping
 		if len(tableInfo.SrcTableInfo) == 1 && len(tableInfo.DestTableInfo) == 1 {
 			srcTable := tableInfo.SrcTableInfo[0]
 			destTable := tableInfo.DestTableInfo[0]
-			// fmt.Printf("dumpling -h 10.0.3.7 -P 4000 -u root -p '1234Abcd' --threads 8  --tables-list '%s' --output-filename-template '%s.{{.Index}}' --filetype csv -o 'azblob://tidbdataimport/merged_table_test/' --azblob.account-name jaytest001 --azblob.sas-token '${SAS}'\n", srcTable, destTable)
 			data := struct {
 				SrcTable  string
 				DestTable string
@@ -156,7 +241,6 @@ func main() {
 				log.Printf("Error executing template: %v", err)
 			}
 			fmt.Fprintf(outputWriter, "%s\n", buf.String())
-			// TODO: Implement dumpling command generation
 		}
 
 		// Case 2: Many-to-many mapping with same table names and count
@@ -179,9 +263,6 @@ func main() {
 					destTableName := destParts[len(destParts)-1]
 
 					if srcTableName == destTableName {
-						// fmt.Printf("Map %s -> %s\n", tableInfo.SrcTableInfo[i], tableInfo.DestTableInfo[j])
-
-						// fmt.Printf("dumpling -h 10.0.3.7 -P 4000 -u root -p '1234Abcd' --threads 8  --tables-list '%s' --output-filename-template '%s.{{.Index}}' --filetype csv -o 'azblob://tidbdataimport/merged_table_test/' --azblob.account-name jaytest001 --azblob.sas-token '${SAS}'\n", tableInfo.SrcTableInfo[i], tableInfo.DestTableInfo[j])
 						data := struct {
 							SrcTable  string
 							DestTable string
@@ -194,19 +275,16 @@ func main() {
 						if err := tmpl.Execute(&buf, data); err != nil {
 							log.Printf("Error executing template: %v", err)
 						}
-						// fmt.Printf("%s\n", buf.String())
 						fmt.Fprintf(outputWriter, "%s\n", buf.String())
 						break
 					}
 				}
 			}
-			// TODO: Implement table mapping logic
 		}
 
 		// Case 3: Many-to-one consolidation
 		if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) == 1 {
 			destTable := tableInfo.DestTableInfo[0]
-			// fmt.Printf("Using consolidation process to merge tables into %s:\n", destTable)
 			for idx, srcTable := range tableInfo.SrcTableInfo {
 
 				data := struct {
@@ -214,18 +292,38 @@ func main() {
 					DestTable string
 				}{
 					SrcTable:  srcTable,
-					DestTable: fmt.Sprintf("%s.%04d{{.Index}}", destTable, idx+1),
+					DestTable: fmt.Sprintf("%s.%05d{{.Index}}", destTable, idx+1),
 				}
 
 				var buf bytes.Buffer
 				if err := tmpl.Execute(&buf, data); err != nil {
 					log.Printf("Error executing template: %v", err)
 				}
-				// fmt.Printf("%s\n", buf.String())
 				fmt.Fprintf(outputWriter, "%s\n", buf.String())
-				// fmt.Printf("dumpling -h 10.0.3.7 -P 4000 -u root -p '1234Abcd' --threads 8  --tables-list '%s' --output-filename-template '%s.%04d{{.Index}}' --filetype csv -o 'azblob://tidbdataimport/merged_table_test/' --azblob.account-name jaytest001 --azblob.sas-token '${SAS}'\n", srcTable, destTable, idx+1)
 			}
 			// TODO: Implement consolidation logic
+		}
+	}
+
+	if opsType == "generateMapping" {
+		for idx := range tableStructure {
+			if len(tableStructure[idx].SrcTableInfo) > 5 {
+				regex, err := generateRegex(tableStructure[idx].SrcTableInfo)
+				if err != nil {
+					fmt.Printf("------ Error generating regex: %v\n", err)
+				}
+				if regex != nil {
+					tableStructure[idx].SrcRegex = *regex
+				} else {
+					fmt.Printf("Failed to detect the regex")
+				}
+			}
+		}
+
+		for _, tableInfo := range tableStructure {
+			if tableInfo.SrcRegex != "" {
+				fmt.Printf("Using regex for multiple tables: %s \n", tableInfo.SrcRegex)
+			}
 		}
 	}
 
@@ -545,7 +643,7 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 	// The Data Source Name (DSN) string
 	// Format: "user:password@tcp(host:port)/database?param=value"
 	// Replace with your actual database credentials
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbInfo.User, dbInfo.Password, dbInfo.Host, dbInfo.Port, dbInfo.DBName)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbInfo.User, dbInfo.Password, dbInfo.Host, dbInfo.Port, targetDBs[0])
 
 	// 1. Open a database handle
 	// This does not yet establish a connection, but it prepares the database object.
@@ -582,9 +680,12 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
                 NUMERIC_SCALE,
                 DATETIME_PRECISION) ORDER BY COLUMN_NAME ASC SEPARATOR ','))
 		 FROM INFORMATION_SCHEMA.COLUMNS
-		WHERE TABLE_SCHEMA = '%s' 
+		WHERE TABLE_SCHEMA in ('%s') 
 		GROUP BY TABLE_SCHEMA, TABLE_NAME
+		ORDER BY TABLE_SCHEMA, TABLE_NAME;
 	`, strings.Join(targetDBs, "','"))
+
+	fmt.Printf("Query: %s \n", query)
 
 	// 3. Define the database and table you want to query
 	// databaseName := "orderdb_01"
