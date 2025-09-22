@@ -102,10 +102,18 @@ func main() {
 	}
 
 	if opsType == "sourceAnalyze" {
-		fmt.Printf("Starting to analyze the source table and check the table structure \n")
+		// fmt.Printf("Starting to analyze the source table and check the table structure \n")
 		// fmt.Printf("%#v \n", tableStructure)
 		for idx, table := range tableStructure {
-			if len(table.SrcTableInfo) > 2 {
+			if len(table.SrcTableInfo) > 1 {
+				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo[0], len(table.SrcTableInfo))
+			}
+
+		}
+
+		for idx, table := range tableStructure {
+			if len(table.SrcTableInfo) == 1 {
 				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
 				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo[0], len(table.SrcTableInfo))
 			}
@@ -118,9 +126,9 @@ func main() {
 	err = fetch_table_def("dest", &tableStructure, destDBInfo, strings.Split(destDBInfo.DBName, ","))
 	// }
 
-	for _, tableInfo := range tableStructure {
-		fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
-	}
+	// for _, tableInfo := range tableStructure {
+	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
+	// }
 
 	tmpl := template.Must(template.New("dumpling").Parse(strTpl))
 
@@ -165,7 +173,7 @@ func main() {
 			for _, srcTable := range tableInfo.SrcTableInfo {
 				for _, destTable := range tableInfo.DestTableInfo {
 					if (strings.Split(srcTable, "."))[1] == (strings.Split(destTable, "."))[1] {
-						fmt.Printf("Same table name with layout: %s vs %s \n", srcTable, destTable)
+						// fmt.Printf("Same table name with layout: %s vs %s \n", srcTable, destTable)
 						convertedTableStructure = append(convertedTableStructure, TableInfo{
 							MD5Columns:          tableInfo.MD5Columns,
 							MD5ColumnsWithTypes: tableInfo.MD5ColumnsWithTypes,
@@ -660,7 +668,7 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	fmt.Println("Successfully connected to the MySQL database!")
+	// fmt.Println("Successfully connected to the MySQL database!")
 
 	// 2. Define the SQL query with placeholders
 	// case when upper(COLUMN_TYPE) IN ('BIGINT', 'INT', 'MEDIUMINT', 'SMALLINT', 'TINYINT') then '0' else NUMERIC_PRECISION end
@@ -685,7 +693,7 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 		ORDER BY TABLE_SCHEMA, TABLE_NAME;
 	`, strings.Join(targetDBs, "','"))
 
-	fmt.Printf("Query: %s \n", query)
+	// fmt.Printf("Query: %s \n", query)
 
 	// 3. Define the database and table you want to query
 	// databaseName := "orderdb_01"
