@@ -1,0 +1,37 @@
+SourceDB:
+  - 
+    Host: 10.0.1.5
+    Port: 3306
+    User: dmuser
+    Password: 1234Abcd
+    DBs: 
+      - messagedb_00
+      - messagedb_01
+      - messagedb_02
+      - messagedb_03
+      - messagedb_04
+      - messagedb_05
+      - messagedb_06
+      - messagedb_07
+  -
+    Host: 10.0.1.6
+    Port: 3306
+    User: dmuser
+    Password: 1234Abcd
+    DBs:
+      - messagedb_08
+      - messagedb_09
+      - messagedb_10
+      - messagedb_11
+      - messagedb_12
+      - messagedb_13
+      - messagedb_14
+      - messagedb_15
+DestDB:
+  Host: 10.0.0.10
+  Port: 4000
+  User: root
+  Password: 0jpW_@Y453mN*h1+t9
+  DBs: 
+    - messagedb
+Template: "dumpling -h ${DBHOST} -P ${DBPORT} -u ${DBUSER} -p \"${DBPASSWORD}\" --threads 1 --tables-list '{{.SrcTable}}' --output-filename-template '{{.DestTable}}' --filetype csv -o \"${DUMPLING_OUTPUT}\""

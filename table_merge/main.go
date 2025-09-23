@@ -13,16 +13,18 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"gopkg.in/yaml.v3"
+	"io/ioutil"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 type DBConnInfo struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	DBName   string
+	Host     string   `yaml:"Host"`
+    Port     int      `yaml:"Port"`
+    User     string   `yaml:"User"`
+    Password string   `yaml:"Password"`
+    DBs      []string `yaml:"DBs"`
 }
 
 type TableInfo struct {
@@ -40,6 +42,7 @@ var (
 	destDBInfo DBConnInfo
 	outputFile string
 	outputErr  string
+	configFile string
 )
 
 var rootCmd = &cobra.Command{
@@ -59,6 +62,8 @@ func init() {
 	// Add the --config flag to the root command.
 	rootCmd.PersistentFlags().StringVarP(&strTpl, "template", "t", "", "template command for dumpling")
 
+	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Config file")
+
 	// Define flags for source and destination databases
 	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateMapping]")
 
@@ -66,13 +71,13 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&srcDBInfo.Port, "src-port", 4000, "Source database port")
 	rootCmd.PersistentFlags().StringVar(&srcDBInfo.User, "src-user", "", "Source database user")
 	rootCmd.PersistentFlags().StringVar(&srcDBInfo.Password, "src-password", "", "Source database password")
-	rootCmd.PersistentFlags().StringVar(&srcDBInfo.DBName, "src-dbs", "", "Source database name")
+	// rootCmd.PersistentFlags().StringVar(&srcDBInfo.DBName, "src-dbs", "", "Source database name")
 
 	rootCmd.PersistentFlags().StringVar(&destDBInfo.Host, "dest-host", "", "Destination database host")
 	rootCmd.PersistentFlags().IntVar(&destDBInfo.Port, "dest-port", 4000, "Destination database port")
 	rootCmd.PersistentFlags().StringVar(&destDBInfo.User, "dest-user", "", "Destination database user")
 	rootCmd.PersistentFlags().StringVar(&destDBInfo.Password, "dest-password", "", "Destination database password")
-	rootCmd.PersistentFlags().StringVar(&destDBInfo.DBName, "dest-dbs", "", "Destination database name")
+	// rootCmd.PersistentFlags().StringVar(&destDBInfo.DBName, "dest-dbs", "", "Destination database name")
 
 	rootCmd.PersistentFlags().StringVar(&outputFile, "output", "", "Output file path")
 	rootCmd.PersistentFlags().StringVar(&outputFile, "error-file", "", "Output file path for failed mapping tables")
@@ -83,23 +88,41 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var config Config
+	var err error
+	if configFile != "" {
+		// fmt.Printf("Config file: %s \n", configFile)
+		config, err = readConfig(configFile)
+		if err!= nil {
+			log.Fatalf("Failed to read config file: %v", err)
+		}
+		// fmt.Printf("the config : %#v \n", config)
+	}
+
 	if opsType == "" {
 		fmt.Printf("Please provide ops type. \n")
 		return
 	}
 
-	if opsType == "generateDumpling" && strTpl == "" {
-		fmt.Printf("Please provide template command for dumpling \n")
-		return
-	}
+	// if opsType == "generateDumpling" && strTpl == "" {
+	// 	fmt.Printf("Please provide template command for dumpling \n")
+	// 	return
+	// }
 
 	tableStructure := []TableInfo{}
 
-	err := fetch_table_def("source", &tableStructure, srcDBInfo, strings.Split(srcDBInfo.DBName, ","))
-	if err != nil {
-		fmt.Printf("Failed to fetch table definition: %v \n", err)
-		return
+	for _, sourceDB := range config.SourceDB {
+		err := fetch_table_def("source", &tableStructure, sourceDB)
+		if err!= nil {
+			fmt.Printf("Failed to fetch table definition: %v \n", err)
+			return
+		}
 	}
+	// err := fetch_table_def("source", &tableStructure, srcDBInfo, strings.Split(srcDBInfo.DBName, ","))
+	// if err != nil {
+	// 	fmt.Printf("Failed to fetch table definition: %v \n", err)
+	// 	return
+	// }
 
 	if opsType == "sourceAnalyze" {
 		// fmt.Printf("Starting to analyze the source table and check the table structure \n")
@@ -122,15 +145,21 @@ func main() {
 		return
 	}
 
+	// fmt.Printf("Starting to generate the mapping command: %#v  \n", config)
 	// if opsType == "generateMapping" {
-	err = fetch_table_def("dest", &tableStructure, destDBInfo, strings.Split(destDBInfo.DBName, ","))
+	err = fetch_table_def("dest", &tableStructure, config.DestDB)
+	if err!= nil {
+		fmt.Printf("Failed to fetch table definition: %v \n", err)
+		return
+	}
 	// }
 
 	// for _, tableInfo := range tableStructure {
 	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 	// }
 
-	tmpl := template.Must(template.New("dumpling").Parse(strTpl))
+	// fmt.Printf("template: %s \n", config.Template)
+	tmpl := template.Must(template.New("dumpling").Parse(config.Template))
 
 	// Open output file for writing if specified
 	var outputWriter *os.File
@@ -228,7 +257,7 @@ func main() {
 	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 	// }
 
-	tableStructure = convertedTableStructure
+	tableStructure = convertedTableStructure 
 
 	// fmt.Printf("--------- Start to prepare dumpling command ----- ---- \n")
 	for _, tableInfo := range tableStructure {
@@ -647,11 +676,11 @@ func regex_is_valid(regex string, tables []string) ToolReturn {
 	return result
 }
 
-func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBConnInfo, targetDBs []string) error {
+func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBConnInfo) error {
 	// The Data Source Name (DSN) string
 	// Format: "user:password@tcp(host:port)/database?param=value"
 	// Replace with your actual database credentials
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbInfo.User, dbInfo.Password, dbInfo.Host, dbInfo.Port, targetDBs[0])
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbInfo.User, dbInfo.Password, dbInfo.Host, dbInfo.Port, dbInfo.DBs[0])
 
 	// 1. Open a database handle
 	// This does not yet establish a connection, but it prepares the database object.
@@ -681,7 +710,6 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 			MD5(GROUP_CONCAT(CONCAT_WS(':',         
 			    COLUMN_NAME,
                 COLUMN_TYPE,
-                COLUMN_DEFAULT,
                 IS_NULLABLE,
                 CHARACTER_MAXIMUM_LENGTH,
                 case when upper(COLUMN_TYPE) IN ('BIGINT', 'INT', 'MEDIUMINT', 'SMALLINT', 'TINYINT') then '0' else NUMERIC_PRECISION end,
@@ -691,7 +719,10 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 		WHERE TABLE_SCHEMA in ('%s') 
 		GROUP BY TABLE_SCHEMA, TABLE_NAME
 		ORDER BY TABLE_SCHEMA, TABLE_NAME;
-	`, strings.Join(targetDBs, "','"))
+	`, strings.Join(dbInfo.DBs, "','"))
+
+	//                 COLUMN_DEFAULT,
+
 
 	// fmt.Printf("Query: %s \n", query)
 
@@ -759,6 +790,29 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 	}
 
 	return nil
+}
+
+type Config struct {
+	SourceDB []DBConnInfo `yaml:"SourceDB"`
+    DestDB   DBConnInfo   `yaml:"DestDB"`
+    Template string       `yaml:"Template"`
+    Output   string       `yaml:"output"`
+    ErrorLog string       `yaml:"error_log"`
+}
+
+func readConfig(fileName string) (Config, error) {
+	var config Config
+	// Read the YAML file
+	yamlFile, err := ioutil.ReadFile(fileName)
+	if err!= nil {
+		return config, err
+	}
+	// Unmarshal the YAML into the Config struct
+	err = yaml.Unmarshal(yamlFile, &config)
+	if err!= nil {
+		return config, err
+	}
+	return config, nil
 }
 
 /*

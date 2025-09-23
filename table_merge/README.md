@@ -49,3 +49,8 @@ dumpling -h ${DBHOST} -P ${DBPORT} -u ${DBUSER} -p "${DBPASSWORD}" --threads 8 -
 dumpling -h ${DBHOST} -P ${DBPORT} -u ${DBUSER} -p "${DBPASSWORD}" --threads 8 --tables-list 'db_00.sharding_table_02' --output-filename-template 'tidb_db.merged_table.00003{{.Index}}' --filetype csv -o 'azblob://exporting/merged_table_test/' --azblob.account-name $StorageAccount --azblob.sas-token "${SAS}"
 ...
 ```
+Export data to local:
+```
+./bin/md-toolkit --src-host $SrcDBHost --src-port $SrcDBPort --src-user $SrcDBUser --src-password $SrcDBPassword --src-dbs messagedb_00,messagedb_01 --dest-host $DestDBHost --dest-port $DestDBPort --dest-user $DestDBUser --dest-password $DestDBPassword --dest-dbs messagedb --ops-type generateDumpling --template "dumpling -h \${DBHOST} -P \${DBPORT} -u \${DBUSER} -p \"\${DBPASSWORD}\" --threads 8 --tables-list '{{.SrcTable}}' --output-filename-template '{{.DestTable}}' --filetype csv -o \"\${DUMPLING_OUTPUT}\""
+```
+
