@@ -8,23 +8,24 @@ import (
 	"fmt"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+	"io/ioutil"
 	"log"
 	"os"
 	"regexp"
 	"strings"
 	"text/template"
-	"gopkg.in/yaml.v3"
-	"io/ioutil"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 type DBConnInfo struct {
+	Name     string   `yaml:"Name"`
 	Host     string   `yaml:"Host"`
-    Port     int      `yaml:"Port"`
-    User     string   `yaml:"User"`
-    Password string   `yaml:"Password"`
-    DBs      []string `yaml:"DBs"`
+	Port     int      `yaml:"Port"`
+	User     string   `yaml:"User"`
+	Password string   `yaml:"Password"`
+	DBs      []string `yaml:"DBs"`
 }
 
 type TableInfo struct {
@@ -65,7 +66,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Config file")
 
 	// Define flags for source and destination databases
-	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateMapping]")
+	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateSyncDiffconfig, generateMapping]")
 
 	rootCmd.PersistentFlags().StringVar(&srcDBInfo.Host, "src-host", "", "Source database host")
 	rootCmd.PersistentFlags().IntVar(&srcDBInfo.Port, "src-port", 4000, "Source database port")
@@ -93,7 +94,7 @@ func main() {
 	if configFile != "" {
 		// fmt.Printf("Config file: %s \n", configFile)
 		config, err = readConfig(configFile)
-		if err!= nil {
+		if err != nil {
 			log.Fatalf("Failed to read config file: %v", err)
 		}
 		// fmt.Printf("the config : %#v \n", config)
@@ -113,7 +114,7 @@ func main() {
 
 	for _, sourceDB := range config.SourceDB {
 		err := fetch_table_def("source", &tableStructure, sourceDB)
-		if err!= nil {
+		if err != nil {
 			fmt.Printf("Failed to fetch table definition: %v \n", err)
 			return
 		}
@@ -148,7 +149,7 @@ func main() {
 	// fmt.Printf("Starting to generate the mapping command: %#v  \n", config)
 	// if opsType == "generateMapping" {
 	err = fetch_table_def("dest", &tableStructure, config.DestDB)
-	if err!= nil {
+	if err != nil {
 		fmt.Printf("Failed to fetch table definition: %v \n", err)
 		return
 	}
@@ -161,17 +162,21 @@ func main() {
 	// fmt.Printf("template: %s \n", config.Template)
 	tmpl := template.Must(template.New("dumpling").Parse(config.Template))
 
-	// Open output file for writing if specified
-	var outputWriter *os.File
-	if outputFile != "" {
-		var err error
-		outputWriter, err = os.Create(outputFile)
-		if err != nil {
-			log.Fatalf("Failed to create output file: %v", err)
+	mapWriter := make(map[string]*os.File)
+	for _, db := range config.SourceDB {
+		// Open output file for writing if specified
+		var outputWriter *os.File
+		if outputFile != "" {
+			var err error
+			outputWriter, err = os.Create(fmt.Sprintf("%s/%s.txt", outputFile, db.Name))
+			if err != nil {
+				log.Fatalf("Failed to create output file: %v", err)
+			}
+			defer outputWriter.Close()
+		} else {
+			outputWriter = os.Stdout
 		}
-		defer outputWriter.Close()
-	} else {
-		outputWriter = os.Stdout
+		mapWriter[db.Name] = outputWriter
 	}
 
 	var errorWriter *os.File
@@ -199,9 +204,10 @@ func main() {
 
 		if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) > 1 {
 			foundTable := []string{}
+			// If the table name is same, then we will separate them as one-to-one mapping
 			for _, srcTable := range tableInfo.SrcTableInfo {
 				for _, destTable := range tableInfo.DestTableInfo {
-					if (strings.Split(srcTable, "."))[1] == (strings.Split(destTable, "."))[1] {
+					if (strings.Split(srcTable, "."))[2] == (strings.Split(destTable, "."))[2] {
 						// fmt.Printf("Same table name with layout: %s vs %s \n", srcTable, destTable)
 						convertedTableStructure = append(convertedTableStructure, TableInfo{
 							MD5Columns:          tableInfo.MD5Columns,
@@ -214,6 +220,7 @@ func main() {
 				}
 			}
 
+			// If the table name is not same, then we will separate them as many-to-one mapping
 			tmpSrcTable := []string{}
 			tmpDestTable := []string{}
 			for _, srcTable := range tableInfo.SrcTableInfo {
@@ -229,11 +236,12 @@ func main() {
 				}
 			}
 
+			// Find the dest table that has the same base name as the srcTable that was found
 			for _, destTable := range tableInfo.DestTableInfo {
 				isFound := false
 				for _, foundSrc := range foundTable {
 					// Check against the base name of the srcTable that was found
-					if (strings.Split(destTable, "."))[1] == (strings.Split(foundSrc, "."))[1] {
+					if (strings.Split(destTable, "."))[2] == (strings.Split(foundSrc, "."))[2] {
 						isFound = true
 						break
 					}
@@ -243,6 +251,7 @@ func main() {
 				}
 			}
 
+			// If there are remaining src and dest tables, add them to the convertedTableStructure
 			if len(tmpSrcTable) > 0 && len(tmpDestTable) > 0 {
 				convertedTableStructure = append(convertedTableStructure, TableInfo{
 					MD5Columns:          tableInfo.MD5Columns,
@@ -257,88 +266,120 @@ func main() {
 	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 	// }
 
-	tableStructure = convertedTableStructure 
+	tableStructure = convertedTableStructure
 
-	// fmt.Printf("--------- Start to prepare dumpling command ----- ---- \n")
-	for _, tableInfo := range tableStructure {
-		// Case 1: One-to-one mapping
-		if len(tableInfo.SrcTableInfo) == 1 && len(tableInfo.DestTableInfo) == 1 {
-			srcTable := tableInfo.SrcTableInfo[0]
-			destTable := tableInfo.DestTableInfo[0]
-			data := struct {
-				SrcTable  string
-				DestTable string
-			}{
-				SrcTable:  srcTable,
-				DestTable: fmt.Sprintf("%s.{{.Index}}", destTable),
-			}
+	if opsType == "generateDumpling" {
 
-			var buf bytes.Buffer
-			if err := tmpl.Execute(&buf, data); err != nil {
-				log.Printf("Error executing template: %v", err)
-			}
-			fmt.Fprintf(outputWriter, "%s\n", buf.String())
-		}
+		// fmt.Printf("--------- Start to prepare dumpling command ----- ---- \n")
+		for _, tableInfo := range tableStructure {
+			// Case 1: One-to-one mapping
+			if len(tableInfo.SrcTableInfo) == 1 && len(tableInfo.DestTableInfo) == 1 {
+				srcTable := tableInfo.SrcTableInfo[0]
+				// destTable := tableInfo.DestTableInfo[0]
+				srcParts := strings.Split(tableInfo.SrcTableInfo[0], ".")
+				destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
 
-		// Case 2: Many-to-many mapping with same table names and count
-		if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) > 1 &&
-			len(tableInfo.SrcTableInfo) == len(tableInfo.DestTableInfo) {
-			// fmt.Printf("Using table map for multiple tables with same structure\n")
-			fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n")
-			fmt.Fprintf(errorWriter, "| source:      | %s \n", strings.Join(tableInfo.SrcTableInfo, " , "))
-			fmt.Fprintf(errorWriter, "| destination: | %s \n", strings.Join(tableInfo.DestTableInfo, " , "))
-			fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n\n")
-
-			// Match tables by comparing table names after the schema
-			for i := 0; i < len(tableInfo.SrcTableInfo); i++ {
-				srcParts := strings.Split(tableInfo.SrcTableInfo[i], ".")
-				srcTableName := srcParts[len(srcParts)-1]
-
-				// Find matching destination table
-				for j := 0; j < len(tableInfo.DestTableInfo); j++ {
-					destParts := strings.Split(tableInfo.DestTableInfo[j], ".")
-					destTableName := destParts[len(destParts)-1]
-
-					if srcTableName == destTableName {
-						data := struct {
-							SrcTable  string
-							DestTable string
-						}{
-							SrcTable:  tableInfo.SrcTableInfo[i],
-							DestTable: fmt.Sprintf("%s.{{.Index}}", tableInfo.DestTableInfo[j]),
-						}
-
-						var buf bytes.Buffer
-						if err := tmpl.Execute(&buf, data); err != nil {
-							log.Printf("Error executing template: %v", err)
-						}
-						fmt.Fprintf(outputWriter, "%s\n", buf.String())
-						break
-					}
-				}
-			}
-		}
-
-		// Case 3: Many-to-one consolidation
-		if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) == 1 {
-			destTable := tableInfo.DestTableInfo[0]
-			for idx, srcTable := range tableInfo.SrcTableInfo {
-
+				dbName := strings.Split(srcTable, ".")[0]
 				data := struct {
 					SrcTable  string
 					DestTable string
 				}{
-					SrcTable:  srcTable,
-					DestTable: fmt.Sprintf("%s.%05d{{.Index}}", destTable, idx+1),
+					SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
+					DestTable: fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
 				}
 
 				var buf bytes.Buffer
 				if err := tmpl.Execute(&buf, data); err != nil {
 					log.Printf("Error executing template: %v", err)
 				}
-				fmt.Fprintf(outputWriter, "%s\n", buf.String())
+				fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
 			}
-			// TODO: Implement consolidation logic
+
+			// Case 2: Many-to-many mapping with same table names and count
+			if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) > 1 &&
+				len(tableInfo.SrcTableInfo) == len(tableInfo.DestTableInfo) {
+				// fmt.Printf("Using table map for multiple tables with same structure\n")
+				fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n")
+				fmt.Fprintf(errorWriter, "| source:      | %s \n", strings.Join(tableInfo.SrcTableInfo, " , "))
+				fmt.Fprintf(errorWriter, "| destination: | %s \n", strings.Join(tableInfo.DestTableInfo, " , "))
+				fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n\n")
+
+				// Match tables by comparing table names after the schema
+				for i := 0; i < len(tableInfo.SrcTableInfo); i++ {
+					srcParts := strings.Split(tableInfo.SrcTableInfo[i], ".")
+					srcTableName := srcParts[len(srcParts)-1]
+					dbName := srcParts[0]
+
+					// Find matching destination table
+					for j := 0; j < len(tableInfo.DestTableInfo); j++ {
+						destParts := strings.Split(tableInfo.DestTableInfo[j], ".")
+						destTableName := destParts[len(destParts)-1]
+
+						if srcTableName == destTableName {
+							data := struct {
+								SrcTable  string
+								DestTable string
+							}{
+								SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
+								DestTable: fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
+							}
+
+							var buf bytes.Buffer
+							if err := tmpl.Execute(&buf, data); err != nil {
+								log.Printf("Error executing template: %v", err)
+							}
+							fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
+							break
+						}
+					}
+				}
+			}
+
+			// Case 3: Many-to-one consolidation
+			if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) == 1 {
+				destTable := tableInfo.DestTableInfo[0]
+				destParts := strings.Split(destTable, ".")
+				for idx, srcTable := range tableInfo.SrcTableInfo {
+					srcParts := strings.Split(srcTable, ".")
+					dbName := srcParts[0]
+					data := struct {
+						SrcTable  string
+						DestTable string
+					}{
+						SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
+						DestTable: fmt.Sprintf("%s.%s.%05d{{.Index}}", destParts[1], destParts[2], idx+1),
+					}
+
+					var buf bytes.Buffer
+					if err := tmpl.Execute(&buf, data); err != nil {
+						log.Printf("Error executing template: %v", err)
+					}
+					fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
+				}
+				// TODO: Implement consolidation logic
+			}
+		}
+	}
+
+	if opsType == "generateSyncDiffconfig" {
+		for idx := range tableStructure {
+			if len(tableStructure[idx].SrcTableInfo) > 2 {
+				regex, err := generateRegex(tableStructure[idx].SrcTableInfo)
+				if err != nil {
+					fmt.Printf("------ Error generating regex: %v\n", err)
+				}
+				if regex != nil {
+					tableStructure[idx].SrcRegex = *regex
+				} else {
+					fmt.Printf("Failed to detect the regex")
+				}
+			}
+		}
+
+		for _, tableInfo := range tableStructure {
+			if tableInfo.SrcRegex != "" {
+				fmt.Printf("Using regex for multiple tables: %s \n", tableInfo.SrcRegex)
+			}
 		}
 	}
 
@@ -723,7 +764,6 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 
 	//                 COLUMN_DEFAULT,
 
-
 	// fmt.Printf("Query: %s \n", query)
 
 	// 3. Define the database and table you want to query
@@ -757,9 +797,9 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 			MD5ColumnsWithTypes: md5ColumnsWithTypes,
 		}
 		if tableType == "source" {
-			newTableInfo.SrcTableInfo = []string{fmt.Sprintf("%s.%s", tableSchema, tableName)}
+			newTableInfo.SrcTableInfo = []string{fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName)}
 		} else {
-			newTableInfo.DestTableInfo = []string{fmt.Sprintf("%s.%s", tableSchema, tableName)}
+			newTableInfo.DestTableInfo = []string{fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName)}
 		}
 
 		// Check if similar table structure exists
@@ -769,10 +809,10 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 				existing.MD5ColumnsWithTypes == newTableInfo.MD5ColumnsWithTypes {
 				if tableType == "source" {
 					(*tableStructure)[i].SrcTableInfo = append((*tableStructure)[i].SrcTableInfo,
-						fmt.Sprintf("%s.%s", tableSchema, tableName))
+						fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName))
 				} else {
 					(*tableStructure)[i].DestTableInfo = append((*tableStructure)[i].DestTableInfo,
-						fmt.Sprintf("%s.%s", tableSchema, tableName))
+						fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName))
 				}
 				found = true
 				break
@@ -794,22 +834,22 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 
 type Config struct {
 	SourceDB []DBConnInfo `yaml:"SourceDB"`
-    DestDB   DBConnInfo   `yaml:"DestDB"`
-    Template string       `yaml:"Template"`
-    Output   string       `yaml:"output"`
-    ErrorLog string       `yaml:"error_log"`
+	DestDB   DBConnInfo   `yaml:"DestDB"`
+	Template string       `yaml:"Template"`
+	Output   string       `yaml:"output"`
+	ErrorLog string       `yaml:"error_log"`
 }
 
 func readConfig(fileName string) (Config, error) {
 	var config Config
 	// Read the YAML file
 	yamlFile, err := ioutil.ReadFile(fileName)
-	if err!= nil {
+	if err != nil {
 		return config, err
 	}
 	// Unmarshal the YAML into the Config struct
 	err = yaml.Unmarshal(yamlFile, &config)
-	if err!= nil {
+	if err != nil {
 		return config, err
 	}
 	return config, nil

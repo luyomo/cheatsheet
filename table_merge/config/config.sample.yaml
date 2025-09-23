@@ -1,5 +1,5 @@
 SourceDB:
-  - 
+  - Name: instance01
     Host: 10.0.1.5
     Port: 3306
     User: dmuser
@@ -14,6 +14,7 @@ SourceDB:
       - messagedb_06
       - messagedb_07
   -
+    Name: instance02
     Host: 10.0.1.6
     Port: 3306
     User: dmuser
@@ -28,6 +29,7 @@ SourceDB:
       - messagedb_14
       - messagedb_15
 DestDB:
+  Name: targetDB
   Host: 10.0.0.10
   Port: 4000
   User: root
