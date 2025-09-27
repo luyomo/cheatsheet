@@ -7,7 +7,7 @@ import (
     "os"
     "path/filepath"
     "strconv"
-    // "strings"
+    "strings"
 )
 
 func main() {
@@ -35,10 +35,36 @@ func makeIDsUnique(schemaName, tableName, folderPath string) error {
         return fmt.Errorf("error finding CSV files: %v", err)
     }
 
-    idCounter := int64(1)
+	// Read checkpoint file
+    checkpointFile := filepath.Join(folderPath, ".checkpoint")
+    processedFiles := make(map[string]int64)
+    var maxProcessedID int64 = 0
+	if data, err := os.ReadFile(checkpointFile); err == nil {
+        lines := strings.Split(string(data), "\n")
+        for _, line := range lines {
+            if line == "" {
+                continue
+            }
+            parts := strings.Split(line, ",")
+            if len(parts) == 2 {
+                if id, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+                    processedFiles[parts[0]] = id
+                    if id > maxProcessedID {
+                        maxProcessedID = id
+                    }
+                }
+            }
+        }
+    }
+
+    idCounter := maxProcessedID + 1
     
     // Process each file
     for _, file := range files {
+		if _, exists := processedFiles[file]; exists {
+            continue
+        }
+
         // Open original file
         f, err := os.Open(file)
         if err != nil {
@@ -55,9 +81,10 @@ func makeIDsUnique(schemaName, tableName, folderPath string) error {
 
         reader := csv.NewReader(f)
         writer := csv.NewWriter(out)
-
+	
         // Read and process each row
         firstRow := true
+        maxID := idCounter
         for {
             record, err := reader.Read()
             if err == io.EOF {
@@ -76,6 +103,7 @@ func makeIDsUnique(schemaName, tableName, folderPath string) error {
             } else {
                 // Replace ID with new unique ID
                 record[0] = strconv.FormatInt(idCounter, 10)
+                maxID = idCounter
                 idCounter++
             }
 
@@ -102,6 +130,25 @@ func makeIDsUnique(schemaName, tableName, folderPath string) error {
         if err := os.Rename(tempFile, file); err != nil {
             os.Remove(tempFile)
             return fmt.Errorf("error replacing original file: %v", err)
+        }
+
+        // Save max ID to checkpoint file
+        checkpointFile := filepath.Join(filepath.Dir(file), ".checkpoint")
+        checkpointContent := fmt.Sprintf("%s,%d", file, maxID)
+        
+        // Read existing content if file exists
+        existingContent := ""
+        if data, err := os.ReadFile(checkpointFile); err == nil {
+            existingContent = string(data)
+        }
+        
+        // Append new content to existing content
+        if existingContent != "" {
+            checkpointContent = existingContent + "\n" + checkpointContent
+        }
+        
+        if err := os.WriteFile(checkpointFile, []byte(checkpointContent), 0644); err != nil {
+            return fmt.Errorf("error writing checkpoint file: %v", err)
         }
     }
 
