@@ -10,7 +10,7 @@ This tool helps generate unique IDs for CSV files while preserving the original 
 1. Download the latest release from the Releases page
 2. Run the executable with your CSV file:
    ```
-   ./genID4CSV input.csv output.csv
+   ./gen-unique-id testSchema testTable testdata
    ```
 3. The tool will:
    - Read your input CSV
