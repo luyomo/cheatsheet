@@ -7,10 +7,11 @@ This tool helps generate unique IDs for CSV files while preserving the original 
 - Process large datasets while maintaining data integrity
 
 ## How to Use
+### Execution for local files
 1. Download the latest release from the Releases page
 2. Run the executable with your CSV file:
    ```
-   ./gen-unique-id testSchema testTable testdata
+   ./bin/gen-unique-id -s local --table testTable --schema testSchema --path "testdata/001"
    ```
 3. The tool will:
    - Read your input CSV
@@ -26,3 +27,13 @@ The tool successfully handles various special characters:
 
 1. Comma (,), Double quore(") and New line in data:
 2. Resume the generation of IDs from the last generated ID.
+
+
+az storage blob upload \
+    --account-name jaytest001 \
+    --container-name tidbdataimport \
+    --file testdata/001/testSchema.testTable.000000.csv \
+    --name merged_table_test/test001.csv \
+    --sas-token "${SAS}"
+
+./bin/gen-unique-id -s azure --sas-token $SAS --storage-name jaytest001 --container tidbdataimport --table testTable --schema testSchema --path "testdata/001"
