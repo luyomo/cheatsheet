@@ -1,39 +1,68 @@
 # CSV ID Generator
 
 ## Background
-This tool helps generate unique IDs for CSV files while preserving the original data structure. It's particularly useful when you need to:
+This tool helps generate unique IDs for CSV files while preserving the original data structure. It supports both local files and Azure Blob Storage. It's particularly useful when you need to:
 - Add unique identifiers to existing CSV data
 - Handle CSV files with special characters
 - Process large datasets while maintaining data integrity
+- Work with Azure Blob Storage for cloud-based data processing
 
 ## How to Use
-### Execution for local files
+
+### Local Files
 1. Download the latest release from the Releases page
 2. Run the executable with your CSV file:
    ```
-   ./bin/gen-unique-id -s local --table testTable --schema testSchema --path "testdata/001"
+   $ gen-unique-id -s local --table testTable --schema testSchema --path "testdata/001"
+   +----------------------------------------------+-----------+-----------+----------------+
+   | FILE NAME                                    | FILE SIZE | STATE     | EXECUTION TIME |
+   +----------------------------------------------+-----------+-----------+----------------+
+   | testdata/001/testSchema.testTable.000000.csv | 2.11 KB   | completed | 157.743µs      |
+   | testdata/001/testSchema.testTable.000001.csv | 2.09 KB   | completed | 92.368µs       |
+   +----------------------------------------------+-----------+-----------+----------------+
    ```
-3. The tool will:
-   - Read your input CSV
-   - Generate unique IDs
-   - Create a new CSV with IDs while preserving original data
-   - Handle special characters automatically
-   - Store processing state in .checkpoint file for resuming operations
 
-## Test Cases
+### Azure Blob Storage
+1. Ensure you have a valid SAS token and Azure storage account
+2. Upload your CSV to Azure Blob Storage:
+   ```
+   az storage blob upload \
+       --account-name <storage-account> \
+       --container-name <container> \
+       --file <local-file-path> \
+       --name <blob-path> \
+       --sas-token "<sas-token>"
+   ```
+3. Run the tool with Azure configuration:
+   ```
+   $ gen-unique-id -s azure \
+       --sas-token <sas-token> \
+       --storage-name <storage-account> \
+       --container <container> \
+       --table <table-name> \
+       --schema <schema-name> \
+       --path <path>
+   +---------------------------------------------------+-----------+-----------+----------------+
+   | FILE NAME                                         | FILE SIZE | STATE     | EXECUTION TIME |
+   +---------------------------------------------------+-----------+-----------+----------------+
+   | merged_table_test/testSchema.testTable.000000.csv | 1.52 KB   | completed | 27.115097ms    |
+   | merged_table_test/testSchema.testTable.000001.csv | 1.60 KB   | completed | 27.850628ms    |
+   +---------------------------------------------------+-----------+-----------+----------------+ 
+   ```
 
-### Special Characters Handling
-The tool successfully handles various special characters:
+## Features
+The tool will:
+- Read your input CSV (local or from Azure Blob Storage)
+- Generate unique IDs
+- Create a new CSV with IDs while preserving original data
+- Handle special characters automatically
+- Store processing state in .checkpoint file for resuming operations
 
-1. Comma (,), Double quore(") and New line in data:
-2. Resume the generation of IDs from the last generated ID.
+## Special Character Support
+The tool handles various special characters including:
+- Commas (,)
+- Double quotes (")
+- New lines in data fields
 
-
-az storage blob upload \
-    --account-name jaytest001 \
-    --container-name tidbdataimport \
-    --file testdata/001/testSchema.testTable.000000.csv \
-    --name merged_table_test/test001.csv \
-    --sas-token "${SAS}"
-
-./bin/gen-unique-id -s azure --sas-token $SAS --storage-name jaytest001 --container tidbdataimport --table testTable --schema testSchema --path "testdata/001"
+## Resumable Operations
+Processing can be resumed from the last checkpoint in case of interruption, making it suitable for large datasets.
