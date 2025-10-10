@@ -12,11 +12,12 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"regexp"
+	// "regexp"
 	"strings"
 	"text/template"
 
 	_ "github.com/go-sql-driver/mysql"
+	selector "github.com/pingcap/tidb/pkg/util/table-rule-selector"
 )
 
 type DBConnInfo struct {
@@ -112,6 +113,11 @@ func main() {
 
 	tableStructure := []TableInfo{}
 
+	/*
+	Fetch source database table definitions and create a mapping where:
+    - Key: MD5 hash of consolidated column definitions
+    - Value: List of table names sharing the same column structure
+	*/ 
 	for _, sourceDB := range config.SourceDB {
 		err := fetch_table_def("source", &tableStructure, sourceDB)
 		if err != nil {
@@ -146,8 +152,11 @@ func main() {
 		return
 	}
 
-	// fmt.Printf("Starting to generate the mapping command: %#v  \n", config)
-	// if opsType == "generateMapping" {
+	/*
+	Similarly, fetch destination database table definitions and create a mapping where:
+    - Key: MD5 hash of consolidated column definitions
+    - Value: List of table names sharing the same column structure
+	 */
 	err = fetch_table_def("dest", &tableStructure, config.DestDB)
 	if err != nil {
 		fmt.Printf("Failed to fetch table definition: %v \n", err)
@@ -162,6 +171,8 @@ func main() {
 	// fmt.Printf("template: %s \n", config.Template)
 	tmpl := template.Must(template.New("dumpling").Parse(config.Template))
 
+	// Open the output file for writing if specified. 
+	// Create file handlers for all the source db which will be used to output the dumpling command.
 	mapWriter := make(map[string]*os.File)
 	for _, db := range config.SourceDB {
 		// Open output file for writing if specified
@@ -179,6 +190,7 @@ func main() {
 		mapWriter[db.Name] = outputWriter
 	}
 
+	// File handler for error output
 	var errorWriter *os.File
 	if outputErr != "" {
 		var err error
@@ -195,13 +207,16 @@ func main() {
 	// to Source: [TableA], Dest: [TableA]
 	//   and Source: [TableB01, TableB02], Dest: [TableB]
 	// If both source and dest has multiple tables, separate those table with same name.
+	// Multiple to multiple can not be handle. Use the name format to make the mapping between the source and destination.
 	convertedTableStructure := []TableInfo{}
 	for _, tableInfo := range tableStructure {
+		// Skip if one to one
 		if len(tableInfo.SrcTableInfo) <= 1 || len(tableInfo.DestTableInfo) <= 1 {
 			convertedTableStructure = append(convertedTableStructure, tableInfo)
 			continue
 		}
 
+		// If multiple to multiple, separate them as one-to-one mapping and many-to-one mapping
 		if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) > 1 {
 			foundTable := []string{}
 			// If the table name is same, then we will separate them as one-to-one mapping
@@ -364,29 +379,47 @@ func main() {
 	if opsType == "generateSyncDiffconfig" {
 		for idx := range tableStructure {
 			if len(tableStructure[idx].SrcTableInfo) > 2 {
-				regex, err := generateRegex(tableStructure[idx].SrcTableInfo)
+				// Get all source tables except the current one
+				allSourceTables := make([]string, 0)
+				for i := range tableStructure {
+					if i != idx {
+						allSourceTables = append(allSourceTables, tableStructure[i].SrcTableInfo...)
+					}
+				}
+
+				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables)
 				if err != nil {
 					fmt.Printf("------ Error generating regex: %v\n", err)
 				}
 				if regex != nil {
 					tableStructure[idx].SrcRegex = *regex
 				} else {
-					fmt.Printf("Failed to detect the regex")
+					fmt.Printf("Failed to detect the regex\n")
 				}
 			}
 		}
 
 		for _, tableInfo := range tableStructure {
+
 			if tableInfo.SrcRegex != "" {
-				fmt.Printf("Using regex for multiple tables: %s \n", tableInfo.SrcRegex)
+				fmt.Printf("Using regex for multiple tables: %s -> %s  \n", tableInfo.SrcRegex, tableInfo.DestTableInfo)
+			} else {
+				fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 			}
 		}
 	}
 
 	if opsType == "generateMapping" {
 		for idx := range tableStructure {
-			if len(tableStructure[idx].SrcTableInfo) > 5 {
-				regex, err := generateRegex(tableStructure[idx].SrcTableInfo)
+			if len(tableStructure[idx].SrcTableInfo) > 2 {
+				allSourceTables := make([]string, 0)
+				for i := range tableStructure {
+					if i != idx {
+						allSourceTables = append(allSourceTables, tableStructure[i].SrcTableInfo...)
+					}
+				}
+
+				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables)
 				if err != nil {
 					fmt.Printf("------ Error generating regex: %v\n", err)
 				}
@@ -539,8 +572,8 @@ func main() {
 	// }
 }
 
-type RegexResult struct {
-	Regex string `json:"regex"`
+type RuleResult struct {
+	Rule string `json:"rule"`
 }
 
 type ChatHistory struct {
@@ -558,56 +591,100 @@ func (ch *ChatHistory) AddResponse(msg openai.ChatCompletionMessage) {
 	ch.Messages = append(ch.Messages, msg)
 }
 
-func generateRegex(tables []string) (*string, error) {
+func generateGeneralRegex(dbList []string, dbListShouldNotMatch []string) (*string, error) {
 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
-	// fmt.Printf("What is the regex for the following tables: %v \n", strings.Join(tables, ",") )
+//	dbRegex := ""
+	fmt.Printf("String to extract the regex: %s \n", strings.Join(dbList, ", "))
 
-	// 1. Define the tool with the function schema
 	tools := []openai.Tool{
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
-				Name:        "regex_is_valid",
-				Description: "Verify if the given regex matches all of the provided tables. Return unmatched tables if any or error message.",
+				Name:        "rule_is_valid",
+				Description: "Verify if the given rule matches all required names and excludes others. The rule should match the exact database naming pattern.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"regex": map[string]interface{}{
+						"rule": map[string]interface{}{
 							"type":        "string",
-							"description": "The candidate regex to validate. Should be anchored with ^ and $.",
+							"description": "The candidate rule to validate.",
+						},
+						"dbs_to_match": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "string",
+							},
+							"description": "List of names that the rule MUST match (e.g., 'db_01', 'db_02').",
+						},
+						"dbs_to_exclude": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "string",
+							},
+							"description": "List of names that the rule MUST NOT match.",
 						},
 					},
-					"required": []string{"regex"},
+					"required": []string{"rule", "dbs_to_match", "dbs_to_exclude"},
 				},
 			},
 		},
 	}
 
-	// 2) Conversation seed: instruct the model to iterate until valid
+	// System message for database name regex generation
 	system := openai.ChatCompletionMessage{
 		Role: openai.ChatMessageRoleSystem,
 		Content: strings.Join([]string{
-			"You generate a single regex that matches ALL and ONLY the user's tables.",
-			"Rules:",
-			"- Always use ^ and $ anchors to match the entire string.",
-			"- Prefer a concise pattern.",
-			"- Use ToolCalls `regex_is_valid` with your candidate regex (and pass the tables).",
-			"- If the ToolCalls(regex_is_valid) returns unmatched tables or error, refine your regex and call the tool again.",
-			"- Repeat until it validates or you cannot improve. ",
-			"- Only return the result without any comment",
+          "You are an assistant that generates concise and accurate pattern-matching rules according to the given specification. ",
+          "Rules must follow the pattern specification below:",
+          "Pattern Matching Specification:",
+          "1. Pattern Characters:",
+          "  - '*': Matches zero or more characters (must be the last character)",
+          "  - '?': Matches exactly one character",
+          "  - '[...]': Matches a single character from the specified range",
+          "2. Range Pattern Format:",
+          "  - [a-z]: Matches any single character from 'a' to 'z'",
+          "  - [!a-z]: Matches any single character NOT in range 'a' to 'z'",
+          "  - [abc]: Matches 'a', 'b', or 'c'",
+          "3. Limitations:",
+          "  - '*' can only appear at the end of the pattern",
+          "  - Each '?' matches exactly one character",
+          "  - Range patterns are case-sensitive",
+          "  - Empty patterns are not allowed",
+          "  - Maximum pattern length is not restricted",
+          "4. Pattern Types and Examples:",
+          "  a. Exact Match:",
+          "    - \"abc\" matches exactly \"abc\"",
+          "    - \"abd\" matches exactly \"abd\"",
+          "  b. Single Character Wildcard (?):",
+          "    - \"?bc\" matches \"abc\", \"dbc\"",
+          "    - \"a?c\" matches \"abc\", \"adc\"",
+          "    - \"ab?\" matches \"abc\", \"abd\"",
+          "  c. Multi-Character Wildcard (*):",
+          "    - \"ab*\" matches \"abc\", \"abcd\", \"abcde\"",
+          "    - \"schema*\" matches \"schema1\", \"schema12\"",
+          "    - \"test*\" matches \"test1\", \"test_abc\"",
+          "   Note: '*' must be the last character",
+          "  d. Character Range ([...]):",
+          "    - \"ik[hjkl]\" matches \"ikh\", \"ikj\", \"ikk\", \"ikl\" ",
+          "    - \"ik[f-h]\" matches \"ikf\", \"ikg\", \"ikh\"",
+          "    - \"i[x-z][1-3]\" matches \"ix1\", \"iy2\", \"iz3\"",
+          "  e. Negated Range ([!...]):",
+          "    - \"ik[!zxc]\" matches any \"ik\" followed by any character except 'z', 'x', 'c'",
+          "    - \"ik[!a-ce-g]\" matches any \"ik\" followed by any character not in ranges a-c and e-g",
 		}, "\n"),
 	}
 
 	user := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: fmt.Sprintf("Tables:\n%s", strings.Join(tables, "\n")),
+		Role: openai.ChatMessageRoleUser,
+		Content: strings.Join([]string{
+			"Create a pattern rule for these names:",
+			fmt.Sprintf("Names: %s", strings.Join(dbList, ", ")),
+		}, "\n"),
 	}
 
-	// expectedRegex := ""
-
 	messages := []openai.ChatCompletionMessage{system, user}
-	const maxRounds = 6
+	const maxRounds = 3
 	for round := 1; round <= maxRounds; round++ {
 		resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 			Model:    openai.GPT3Dot5Turbo, // or your preferred model
@@ -619,25 +696,20 @@ func generateRegex(tables []string) (*string, error) {
 		}
 
 		assistant := resp.Choices[0].Message
-
-		// fmt.Printf("Round %d: %#v \n", round, assistant)
-		// fmt.Printf("    toolCalles: %#v \n", assistant.ToolCalls)
-
-		// If the assistant wants to call tools, run them and feed results back
 		if len(assistant.ToolCalls) > 0 {
 			// Add the assistant message with tool_calls to history
 			messages = append(messages, assistant)
 
 			for _, tc := range assistant.ToolCalls {
-				if tc.Function.Name != "regex_is_valid" {
+				if tc.Function.Name != "rule_is_valid" {
 					continue
 				}
 
 				// Parse arguments
-				var args RegexResult
+				var args RuleResult
 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 					// If parsing fails, give the model a helpful error signal
-					toolContent := ToolReturn{Valid: false, Error: "Bad JSON arguments for regex_is_valid"}
+					toolContent := ToolReturn{Valid: false, Error: "Bad JSON arguments for rule_is_valid"}
 					contentBytes, _ := json.Marshal(toolContent)
 					messages = append(messages, openai.ChatCompletionMessage{
 						Role:       openai.ChatMessageRoleTool,
@@ -648,14 +720,16 @@ func generateRegex(tables []string) (*string, error) {
 				}
 
 				// Run your local validator
-				toolContent := regex_is_valid(args.Regex, tables)
-				// fmt.Printf("Checking the regex_is_valid tool done %#v \n", toolContent)
+				fmt.Printf("Rule : %s \n", args.Rule)
+				toolContent := rule_is_valid(args.Rule, dbList, nil)
+				// fmt.Printf("Checking the rule_is_valid tool done %#v \n", toolContent)
 				if toolContent.Valid {
 					// fmt.Printf("Final regex: %s \n", args.Regex)
-					return &toolContent.Regex, nil
+					return &toolContent.Rule, nil
 				}
-				// fmt.Printf("Tables checked: %v \n", toolContent)
-
+				// fmt.Printf("Tables checked: Regex: %s, Table pattern: %v Should matched: %v, Should not matched: %v \n", toolContent.Regex ,tmpTables, toolContent.Unmatched, toolContent.ShouldNotMatch)
+				// fmt.Printf("---- Round: %d, Tables checked: Regex: %s, Should matched DB: %v,  Should matched Table: %v, Should not matched DB: %v, Should not matched Table: %v \n", round, toolContent.Regex, toolContent.UnmatchedDB, toolContent.UnmatchedTable, toolContent.ShouldNotMatchDB, toolContent.ShouldNotMatchTable)
+                // fmt.Printf("error message: %s \n", toolContent.Error)
 				// Return the result to the model
 				// toolContent := ToolReturn{Valid: valid, Unmatched: unmatched}
 				contentBytes, _ := json.Marshal(toolContent)
@@ -667,54 +741,394 @@ func generateRegex(tables []string) (*string, error) {
 				})
 			}
 
+		} else {
+			rule := strings.TrimSpace(assistant.Content)
+			result := rule_is_valid(rule, dbList, nil)
+			if result.Valid {
+				return &rule, nil
+			}
 		}
-		// else {
-		// 	// // No tool_calls: this should be the model's final answer (the regex or an explanation)
-		// // fmt.Println("Final assistant message:")
-		// // fmt.Printf("All the result: %#v \n", resp.Choices[0])
-		// // fmt.Printf("------------------- \n")
-		// // fmt.Println(assistant.Content)
-		// // fmt.Printf("=================== \n")
-		// return &expectedRegex, nil
-		// }
-
 	}
 
-	fmt.Println("Stopped after max rounds without a final answer.")
+	fmt.Println("Stopped after max rounds without a final answer. \n")
 
 	return nil, nil
 }
 
-type ToolReturn struct {
-	Regex     string   `json:"regex"`
-	Valid     bool     `json:"valid"`
-	Unmatched []string `json:"unmatched"`
-	Error     string   `json:"error"`
-}
+// func generateTableRegex(tableList []string, tableListShouldNotMatch []string) (*string, error) {
+// 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
-func regex_is_valid(regex string, tables []string) ToolReturn {
-	result := ToolReturn{
-		Regex:     regex,
-		Valid:     true,
-		Unmatched: []string{},
-		Error:     "",
-	}
+// //	dbRegex := ""
+// 	fmt.Printf("String to extract the regex: %s \n", strings.Join(tableList, ", "))
 
-	re, err := regexp.Compile(regex)
-	if err != nil {
-		result.Valid = false
-		result.Error = fmt.Sprintf("invalid regex: %v", err)
-		return result
-	}
+// 	tools := []openai.Tool{
+// 		{
+// 			Type: openai.ToolTypeFunction,
+// 			Function: &openai.FunctionDefinition{
+// 				Name:        "rule_is_valid",
+// 				Description: "Verify if the given regex matches all required table names and excludes others. The regex should match the exact table naming pattern.",
+// 				Parameters: map[string]interface{}{
+// 					"type": "object",
+// 					"properties": map[string]interface{}{
+// 						"regex": map[string]interface{}{
+// 							"type":        "string",
+// 							"description": "The candidate regex to validate. Must be anchored with ^ and $ to match exact table names.",
+// 						},
+// 						"tables_to_match": map[string]interface{}{
+// 							"type": "array",
+// 							"items": map[string]interface{}{
+// 								"type": "string",
+// 							},
+// 							"description": "List of table names that the regex MUST match (e.g., 'table_01', 'table_02').",
+// 						},
+// 						"tables_to_exclude": map[string]interface{}{
+// 							"type": "array",
+// 							"items": map[string]interface{}{
+// 								"type": "string",
+// 							},
+// 							"description": "List of table names that the regex MUST NOT match.",
+// 						},
+// 					},
+// 					"required": []string{"regex", "name_to_match", "name_to_exclude"},
+// 				},
+// 			},
+// 		},
+// 	}
 
-	for _, t := range tables {
-		if !re.MatchString(t) {
-			result.Valid = false
-			result.Unmatched = append(result.Unmatched, t)
+// 	// 	"- The pattern must be precise and not match unintended tables",
+// 	// System message for database name regex generation
+// 	system := openai.ChatCompletionMessage{
+// 		Role: openai.ChatMessageRoleSystem,
+// 		Content: strings.Join([]string{
+// 			"You are a regex pattern generator specialized in creating patterns for table names.",
+// 			"",
+// 			"Requirements:", 
+// 			"- Generate a regex that matches ONLY the specified table names",
+// 			"- Always use ^ and $ anchors for exact matching",
+// 			"- Focus on common table naming patterns (e.g., prefix_number, sequence_suffix)",
+// 			"- Handle special cases like numeric suffixes (e.g., table_001, table_002)",
+// 			"- Consider variations in separators (_,-,etc)",
+// 			"",
+// 			"Process:",
+// 			"1. Analyze the table naming pattern",
+// 			"2. Identify common elements:",
+// 			"   - Base name/prefix",
+// 			"   - Numeric sequences/suffixes", 
+// 			"   - Separators and delimiters",
+// 			"   - Special characters",
+// 			"3. Create a regex using the tool `regex_is_valid`",
+// 			"4. If validation fails:",
+// 			"   - Check which tables were missed",
+// 			"   - Identify pattern variations",
+// 			"   - Adjust regex to be more precise",
+// 			"   - Try again with refined pattern",
+// 			"5. Continue until all tables match correctly",
+// 			"",
+// 			"Output:",
+// 			"- Only use the tool to propose and validate regex patterns",
+// 			"- Do not include regex patterns in your message text",
+// 			"- Ensure pattern handles all edge cases",
+// 		}, "\n"),
+// 	}
+
+// 	user := openai.ChatCompletionMessage{
+// 		Role: openai.ChatMessageRoleUser,
+// 		Content: strings.Join([]string{
+// 			"Create a regex pattern for these table names:",
+// 			fmt.Sprintf("Table names: %s", strings.Join(tableList, ", ")),
+// 			"",
+// 			"Requirements:",
+// 			"- Match ONLY the listed table names",
+// 			"- Pattern must start with ^ and end with $",
+// 			"- Handle numeric suffixes (e.g., table_001, table_002)",
+// 			"- Consider common table naming patterns (prefix_number, sequence_suffix)",
+// 			"- Account for different separators (_,-,etc)",
+// 			"- Be as precise as possible to avoid matching unintended tables",
+// 			"- Ensure pattern captures the exact table naming scheme",
+// 		}, "\n"),
+// 	}
+
+// 	messages := []openai.ChatCompletionMessage{system, user}
+// 	const maxRounds = 3
+// 	for round := 1; round <= maxRounds; round++ {
+// 		resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
+// 			Model:    openai.GPT3Dot5Turbo, // or your preferred model
+// 			Messages: messages,
+// 			Tools:    tools,
+// 		})
+// 		if err != nil {
+// 			log.Fatalf("ChatCompletion error (round %d): %v", round, err)
+// 		}
+
+// 		assistant := resp.Choices[0].Message
+// 		if len(assistant.ToolCalls) > 0 {
+// 			// Add the assistant message with tool_calls to history
+// 			messages = append(messages, assistant)
+
+// 			for _, tc := range assistant.ToolCalls {
+// 				if tc.Function.Name != "regex_is_valid" {
+// 					continue
+// 				}
+
+// 				// Parse arguments
+// 				var args RegexResult
+// 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+// 					// If parsing fails, give the model a helpful error signal
+// 					toolContent := ToolReturn{Valid: false, Error: "Bad JSON arguments for regex_is_valid"}
+// 					contentBytes, _ := json.Marshal(toolContent)
+// 					messages = append(messages, openai.ChatCompletionMessage{
+// 						Role:       openai.ChatMessageRoleTool,
+// 						ToolCallID: tc.ID,
+// 						Content:    string(contentBytes),
+// 					})
+// 					continue
+// 				}
+
+// 				// Run your local validator
+// 				fmt.Printf("RegexResult: %s \n", args.Regex)
+// 				toolContent := regex_is_valid(args.Regex, tableList, nil)
+// 				// fmt.Printf("Checking the regex_is_valid tool done %#v \n", toolContent)
+// 				if toolContent.Valid {
+// 					// fmt.Printf("Final regex: %s \n", args.Regex)
+// 					return &toolContent.Regex, nil
+// 				}
+// 				// fmt.Printf("Tables checked: Regex: %s, Table pattern: %v Should matched: %v, Should not matched: %v \n", toolContent.Regex ,tmpTables, toolContent.Unmatched, toolContent.ShouldNotMatch)
+// 				// fmt.Printf("---- Round: %d, Tables checked: Regex: %s, Should matched DB: %v,  Should matched Table: %v, Should not matched DB: %v, Should not matched Table: %v \n", round, toolContent.Regex, toolContent.UnmatchedDB, toolContent.UnmatchedTable, toolContent.ShouldNotMatchDB, toolContent.ShouldNotMatchTable)
+//                 // fmt.Printf("error message: %s \n", toolContent.Error)
+// 				// Return the result to the model
+// 				// toolContent := ToolReturn{Valid: valid, Unmatched: unmatched}
+// 				contentBytes, _ := json.Marshal(toolContent)
+
+// 				messages = append(messages, openai.ChatCompletionMessage{
+// 					Role:       openai.ChatMessageRoleTool,
+// 					ToolCallID: tc.ID,
+// 					Content:    string(contentBytes),
+// 				})
+// 			}
+
+// 		} else {
+// 			regex := strings.TrimSpace(assistant.Content)
+// 			result := regex_is_valid(regex, tableList, nil)
+// 			if result.Valid {
+// 				return &regex, nil
+// 			}
+// 		}
+// 	}
+
+// 	fmt.Println("Stopped after max rounds without a final answer. \n")
+
+// 	return nil, nil
+// }
+
+
+/*
+ * This regex generation is used to detect the tables that are in the same structure for sync_diff_inspector which 
+ * only allow one routes.rule to compare the data between source tables and destination table. The only one regex is required
+ * to conver all the source tables while it should not match any other tables. 
+ */
+func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, error) {
+	// client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+
+	tmpTables := []string{}
+	// Convert table names from instanceName.DBName.Table format to DBName.Table
+	// by removing the instanceName prefix
+	dbList := []string{}
+	tableList := []string{}
+	for i := range tables {
+		parts := strings.Split(tables[i], ".")
+		if len(parts) == 3 {
+			tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
+		}
+		found := false
+		for _, db := range dbList {
+			if db == parts[1] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dbList = append(dbList, parts[1])
+		}
+
+		found = false
+		for _, table := range tableList {
+			if table == parts[2] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			tableList = append(tableList, parts[2])
 		}
 	}
 
+
+	var err error
+	fmt.Printf("All the db: %s \n", strings.Join(dbList, ", "))
+	fmt.Printf("All the tables: %s \n", strings.Join(tableList, ", "))
+	var dbRegex *string
+	if len(dbList) == 1 {
+		dbRegex = &dbList[0]
+	} else {
+		dbRegex, err = generateGeneralRegex(dbList, nil)
+		if err!= nil {
+			fmt.Printf("Error generating regex for db: %v \n", err)
+			return nil, err
+		}
+	}
+	
+
+	var tableRegex *string
+	if len(tableList) == 1 {
+        tableRegex = &tableList[0]
+	}else {
+		tableRegex, err = generateGeneralRegex(tableList, nil)
+		if err!= nil {
+			fmt.Printf("Error generating regex for db: %v \n", err)
+			return nil, err
+		}
+	}
+	fmt.Printf("Generate db regex: %s \n", *dbRegex)
+	
+	if tableRegex != nil {
+	fmt.Printf("table regex: %s \n", *tableRegex)
+	} else{
+		fmt.Printf("table regex is nil \n")
+	}
+	fmt.Printf("-------------------------%#v ---- %#v \n\n", dbRegex, tableRegex)
+
+    regex := fmt.Sprintf("%s.%s", *dbRegex, *tableRegex)
+
+	return &regex, nil
+}
+
+type ToolReturn struct {
+	Rule           string   `json:"rule"`
+	Valid          bool     `json:"valid"`
+	Unmatched      []string `json:"name_to_match"`
+	ShouldNotMatch []string `json:"name_to_exclude"`
+	Error          string   `json:"error"`
+}
+
+func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []string) ToolReturn {
+	result := ToolReturn{
+		Rule:           pattern,
+		Valid:          true,
+		Unmatched:      []string{},
+		ShouldNotMatch: []string{},
+		Error:          "",
+	}
+
+	// Create a new trie selector
+    ts := selector.NewTrieSelector()
+
+    // Create a rule for tables
+    // Let's say we want to match all tables that:
+    // - Are in schema "mydb"
+    // - Start with "order" followed by 3 digits
+    schema := "mydb"
+    // tablePattern := "order[0-9][0-9][0-9]"
+    
+    // Define a rule (can be any type)
+    rulePattern := struct {
+        Action string
+        Priority int
+    }{
+        Action: "verification",
+        Priority: 1,
+    }
+
+    // Insert the rule
+    err := ts.Insert(schema, pattern, rulePattern, selector.Insert)
+    if err != nil {
+        // fmt.Printf("Failed to insert rule: %v\n", err)
+		result.Valid = false
+		result.Error = fmt.Sprintf("Failed to insert rule: %v\n", err)
+        return result
+    }
+
+    // Test some table names
+    // testTables := []string{"order001", "order123", "order999", "orderabc", "other123"}
+	for _, table := range tables {
+        rules := ts.Match(schema, table)
+        if rules != nil {
+            fmt.Printf("OK: Table %s matched! Rules found: %+v\n", table, rules)
+        } else {
+			result.Unmatched = append(result.Unmatched, table)
+            fmt.Printf("NG: Table %s did not match any rules\n", table)
+			result.Valid = false
+        }
+    }
+
+    for _, table := range tablesShouldNotMatch {
+        rules := ts.Match(schema, table)
+        if rules != nil {
+			result.ShouldNotMatch = append(result.ShouldNotMatch, table)
+			result.Valid = false
+            fmt.Printf("NG: Table %s matched! Rules found: %+v\n", table, rules)
+        } else {
+			// result.ShouldNotMatch = append(result.ShouldNotMatch, t)
+            fmt.Printf("OK: Table %s did not match any rules\n", table)
+        }
+    }
+
 	return result
+
+
+
+	// arrRegex := strings.Split(regex, "\\.")
+	// fmt.Printf("arrRegex: %#v \n", arrRegex)
+
+	// reDB, err := regexp.Compile(fmt.Sprintf("%s$", arrRegex[0]))
+	// if err != nil {
+	// 	result.Valid = false
+	// 	result.Error = fmt.Sprintf("invalid regex: %v", err)
+	// 	return result
+	// }
+
+	// reTable, err := regexp.Compile(fmt.Sprintf("^%s", arrRegex[1]))
+	// if err != nil {
+	// 	result.Valid = false
+	// 	result.Error = fmt.Sprintf("invalid regex: %v", err)
+	// 	return result
+	// }
+
+	// re, err := regexp.Compile(rule)
+	// if err != nil {
+	// 	result.Valid = false
+	// 	result.Error = fmt.Sprintf("invalid regex: %v", err)
+	// 	return result
+	// }
+
+	// for _, t := range tables {
+	// 	if !re.MatchString(t) {
+	// 		// fmt.Printf("Regex: %s, Table: %s \n", regex, t)
+	// 		result.Valid = false
+	// 		result.Unmatched = append(result.Unmatched, t)
+	// 	}
+	// }
+
+	// // Check if any tables that should not match actually match the regex
+	// if tablesShouldNotMatch != nil {
+	// for _, t := range tablesShouldNotMatch {
+	// 	// if len(result.ShouldNotMatch) >= 10 {
+	// 	// 	break
+	// 	// }
+	// 	// Convert from InstanceName.DBName.TableName to DBName.TableName if needed
+	// 	// tableName := t
+	// 	// parts := strings.Split(t, ".")
+	// 	// if len(parts) == 3 {
+	// 	// 	tableName = fmt.Sprintf("%s.%s", parts[1], parts[2])
+	// 	// }
+
+	// 	if re.MatchString(t) {
+	// 		result.Valid = false
+	// 		result.ShouldNotMatch = append(result.ShouldNotMatch, t)
+	// 	}
+	// }
+    // }
+
+	// return result
 }
 
 func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBConnInfo) error {
