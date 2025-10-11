@@ -12,7 +12,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	// "regexp"
+	"sort"
+	"math/rand"
 	"strings"
 	"text/template"
 
@@ -440,10 +441,10 @@ type RuleResult struct {
 	Rule string `json:"rule"`
 }
 
-func generateGeneralRegex(dbList []string, dbListShouldNotMatch []string) (*string, error) {
+func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*string, error) {
 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
-	fmt.Printf("String to extract the regex: %s \n", strings.Join(dbList, ", "))
+	fmt.Printf("String to extract the regex: %s \n", strings.Join(dataList, ", "))
 
 	tools := []openai.Tool{
 		{
@@ -523,11 +524,16 @@ func generateGeneralRegex(dbList []string, dbListShouldNotMatch []string) (*stri
 		}, "\n"),
 	}
 
+	samplingNum := calculateSampleSize(len(dataList))
+	sampledData := sampleData(dataList, samplingNum)
+
+	fmt.Printf("Sampled data: %s \n", strings.Join(sampledData, ", "))
+
 	user := openai.ChatCompletionMessage{
 		Role: openai.ChatMessageRoleUser,
 		Content: strings.Join([]string{
 			"Create a pattern rule for these names:",
-			fmt.Sprintf("Names: %s", strings.Join(dbList, ", ")),
+			fmt.Sprintf("Names: %s", strings.Join(sampledData, ", ")),
 		}, "\n"),
 	}
 
@@ -569,7 +575,7 @@ func generateGeneralRegex(dbList []string, dbListShouldNotMatch []string) (*stri
 
 				// Run your local validator
 				fmt.Printf("Rule : %s \n", args.Rule)
-				toolContent := rule_is_valid(args.Rule, dbList, nil)
+				toolContent := rule_is_valid(args.Rule, dataList, nil)
 				// fmt.Printf("Checking the rule_is_valid tool done %#v \n", toolContent)
 				if toolContent.Valid {
 					// fmt.Printf("Final regex: %s \n", args.Regex)
@@ -586,7 +592,7 @@ func generateGeneralRegex(dbList []string, dbListShouldNotMatch []string) (*stri
 
 		} else {
 			rule := strings.TrimSpace(assistant.Content)
-			result := rule_is_valid(rule, dbList, nil)
+			result := rule_is_valid(rule, dataList, nil)
 			if result.Valid {
 				return &rule, nil
 			}
@@ -672,6 +678,10 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 	}
 	fmt.Printf("-------------------------%#v ---- %#v \n\n", dbRegex, tableRegex)
 
+	if dbRegex == nil || tableRegex == nil {
+		emptyStr := ""
+		return &emptyStr, nil
+	}
 	regex := fmt.Sprintf("%s.%s", *dbRegex, *tableRegex)
 
 	return &regex, nil
@@ -875,15 +885,61 @@ type Config struct {
 
 func readConfig(fileName string) (Config, error) {
 	var config Config
+
 	// Read the YAML file
 	yamlFile, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		return config, err
+		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
+
 	// Unmarshal the YAML into the Config struct
-	err = yaml.Unmarshal(yamlFile, &config)
-	if err != nil {
-		return config, err
+	if err := yaml.Unmarshal(yamlFile, &config); err != nil {
+		return Config{}, fmt.Errorf("failed to parse config file: %w", err)
 	}
+
+	// Validate required fields
+	if len(config.SourceDB) == 0 {
+		return Config{}, fmt.Errorf("no source databases specified in config")
+	}
+
+	if config.DestDB.Host == "" {
+		return Config{}, fmt.Errorf("destination database host not specified")
+	}
+
 	return config, nil
+}
+
+// calculateSampleSize determines how many items to sample from the input data
+func calculateSampleSize(totalItems int) int {
+    switch {
+    case totalItems <= 100:
+        return min(20, totalItems)
+    case totalItems <= 1000:
+        extraItems := int(0.01 * float64(totalItems-100))
+        return min(20+extraItems, 50)
+    default:
+        return 50
+    }
+}
+
+// sampleData takes a slice of data and returns a randomly sampled subset
+func sampleData(data []string, sampleSize int) []string {
+    if len(data) <= sampleSize {
+        return data
+    }
+
+    // Create a copy to avoid modifying original data
+    shuffled := make([]string, len(data))
+    copy(shuffled, data)
+
+    // Fisher-Yates shuffle algorithm
+    for i := len(shuffled) - 1; i > 0; i-- {
+        j := rand.Intn(i + 1)
+        shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+    }
+
+    // Get sample and sort it before returning
+    sample := shuffled[:sampleSize]
+    sort.Strings(sample)
+    return sample
 }
