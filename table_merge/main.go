@@ -540,9 +540,11 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 	messages := []openai.ChatCompletionMessage{system, user}
 	const maxRounds = 3
 	for round := 1; round <= maxRounds; round++ {
+		fmt.Printf("\nmessages: %#v\n", messages)
 		resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 			Model:    openai.GPT3Dot5Turbo, // or your preferred model
 			Messages: messages,
+			Temperature: 0,
 			Tools:    tools,
 		})
 		if err != nil {
@@ -574,8 +576,8 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 				}
 
 				// Run your local validator
-				fmt.Printf("Rule : %s \n", args.Rule)
-				toolContent := rule_is_valid(args.Rule, dataList, nil)
+				fmt.Printf("\n\nRule : %s \n", args.Rule)
+				toolContent := rule_is_valid(args.Rule, dataList, dataListShouldNotMatch)
 				// fmt.Printf("Checking the rule_is_valid tool done %#v \n", toolContent)
 				if toolContent.Valid {
 					// fmt.Printf("Final regex: %s \n", args.Regex)
@@ -592,7 +594,7 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 
 		} else {
 			rule := strings.TrimSpace(assistant.Content)
-			result := rule_is_valid(rule, dataList, nil)
+			result := rule_is_valid(rule, dataList, dataListShouldNotMatch)
 			if result.Valid {
 				return &rule, nil
 			}
@@ -612,47 +614,53 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, error) {
 	// client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
-	tmpTables := []string{}
+    // splitTables(tables)
+
+	// tmpTables := []string{}
 	// Convert table names from instanceName.DBName.Table format to DBName.Table
 	// by removing the instanceName prefix
-	dbList := []string{}
-	tableList := []string{}
-	for i := range tables {
-		parts := strings.Split(tables[i], ".")
-		if len(parts) == 3 {
-			tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
-		}
-		found := false
-		for _, db := range dbList {
-			if db == parts[1] {
-				found = true
-				break
-			}
-		}
-		if !found {
-			dbList = append(dbList, parts[1])
-		}
+	// dbList := []string{}
+	// tableList := []string{}
+	// for i := range tables {
+	// 	parts := strings.Split(tables[i], ".")
+	// 	if len(parts) == 3 {
+	// 		tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
+	// 	}
+	// 	found := false
+	// 	for _, db := range dbList {
+	// 		if db == parts[1] {
+	// 			found = true
+	// 			break
+	// 		}
+	// 	}
+	// 	if !found {
+	// 		dbList = append(dbList, parts[1])
+	// 	}
 
-		found = false
-		for _, table := range tableList {
-			if table == parts[2] {
-				found = true
-				break
-			}
-		}
-		if !found {
-			tableList = append(tableList, parts[2])
-		}
-	}
+	// 	found = false
+	// 	for _, table := range tableList {
+	// 		if table == parts[2] {
+	// 			found = true
+	// 			break
+	// 		}
+	// 	}
+	// 	if !found {
+	// 		tableList = append(tableList, parts[2])
+	// 	}
+	// }
 
 	var err error
-	fmt.Printf("All the db: %s \n", strings.Join(dbList, ", "))
-	fmt.Printf("All the tables: %s \n", strings.Join(tableList, ", "))
+	// fmt.Printf("All the db: %s \n", strings.Join(dbList, ", "))
+	// fmt.Printf("All the tables: %s \n", strings.Join(tableList, ", "))
+
+	dbList, tableList := splitTables(tables)
+	dbListExclude, tableListExclude := splitTables(tablesShouldNotMatch)
+
 	var dbRegex *string
 	if len(dbList) == 1 {
 		dbRegex = &dbList[0]
 	} else {
-		dbRegex, err = generateGeneralRegex(dbList, nil)
+		dbRegex, err = generateGeneralRegex(dbList, dbListExclude)
 		if err != nil {
 			fmt.Printf("Error generating regex for db: %v \n", err)
 			return nil, err
@@ -663,7 +671,7 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 	if len(tableList) == 1 {
 		tableRegex = &tableList[0]
 	} else {
-		tableRegex, err = generateGeneralRegex(tableList, nil)
+		tableRegex, err = generateGeneralRegex(tableList, tableListExclude)
 		if err != nil {
 			fmt.Printf("Error generating regex for db: %v \n", err)
 			return nil, err
@@ -690,8 +698,8 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 type ToolReturn struct {
 	Rule           string   `json:"rule"`
 	Valid          bool     `json:"valid"`
-	Unmatched      []string `json:"name_to_match"`
-	ShouldNotMatch []string `json:"name_to_exclude"`
+	MissedMatches  []string `json:"missed_matches"`
+	FalsePositives []string `json:"false_positives"`
 	Error          string   `json:"error"`
 }
 
@@ -699,8 +707,8 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 	result := ToolReturn{
 		Rule:           pattern,
 		Valid:          true,
-		Unmatched:      []string{},
-		ShouldNotMatch: []string{},
+		MissedMatches:  []string{},
+		FalsePositives: []string{},
 		Error:          "",
 	}
 
@@ -739,7 +747,7 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 		if rules != nil {
 			fmt.Printf("OK: Table %s matched! Rules found: %+v\n", table, rules)
 		} else {
-			result.Unmatched = append(result.Unmatched, table)
+			result.MissedMatches = append(result.MissedMatches, table)
 			fmt.Printf("NG: Table %s did not match any rules\n", table)
 			result.Valid = false
 		}
@@ -748,7 +756,7 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 	for _, table := range tablesShouldNotMatch {
 		rules := ts.Match(schema, table)
 		if rules != nil {
-			result.ShouldNotMatch = append(result.ShouldNotMatch, table)
+			result.FalsePositives = append(result.FalsePositives, table)
 			result.Valid = false
 			fmt.Printf("NG: Table %s matched! Rules found: %+v\n", table, rules)
 		} else {
@@ -943,3 +951,41 @@ func sampleData(data []string, sampleSize int) []string {
     sort.Strings(sample)
     return sample
 }
+
+func splitTables(tables []string) ([]string, []string) {
+    tmpTables := []string{}
+    // Convert table names from instanceName.DBName.Table format to DBName.Table
+    // by removing the instanceName prefix
+    dbList := []string{}
+    tableList := []string{}
+    for i := range tables {
+        parts := strings.Split(tables[i], ".")
+        if len(parts) == 3 {
+	                       tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
+	               }
+	               found := false
+	               for _, db := range dbList {
+	                       if db == parts[1] {
+	                               found = true
+	                               break
+	                       }
+	               }
+	               if !found {
+	                       dbList = append(dbList, parts[1])
+	               }
+	
+	               found = false
+	               for _, table := range tableList {
+	                       if table == parts[2] {
+	                               found = true
+	                               break
+	                       }
+	               }
+	               if !found {
+	                       tableList = append(tableList, parts[2])
+	               }
+	       }
+	
+	       return dbList, tableList
+	}
+	
