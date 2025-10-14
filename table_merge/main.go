@@ -443,6 +443,9 @@ type RuleResult struct {
 
 func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*string, error) {
 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+	// config := openai.DefaultConfig(os.Getenv("DEEPSEEK_API_KEY"))
+	// config.BaseURL="https://api.deepseek.com/v1"
+	// client := openai.NewClientWithConfig(config)
 
 	fmt.Printf("String to extract the regex: %s \n", strings.Join(dataList, ", "))
 
@@ -485,8 +488,18 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 		Role: openai.ChatMessageRoleSystem,
 		Content: strings.Join([]string{
 			"You are an assistant that generates concise and accurate pattern-matching rules according to the given specification. ",
+		}, "\n"),
+	}
+
+	samplingNum := calculateSampleSize(len(dataList))
+	sampledData := sampleData(dataList, samplingNum)
+
+	fmt.Printf("Sampled data: %s \n", strings.Join(sampledData, ", "))
+
+	user := openai.ChatCompletionMessage{
+		Role: openai.ChatMessageRoleUser,
+		Content: strings.Join([]string{
 			"Rules must follow the pattern specification below:",
-			"Pattern Matching Specification:",
 			"1. Pattern Characters:",
 			"  - '*': Matches zero or more characters (must be the last character)",
 			"  - '?': Matches exactly one character",
@@ -521,30 +534,25 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 			"  e. Negated Range ([!...]):",
 			"    - \"ik[!zxc]\" matches any \"ik\" followed by any character except 'z', 'x', 'c'",
 			"    - \"ik[!a-ce-g]\" matches any \"ik\" followed by any character not in ranges a-c and e-g",
-		}, "\n"),
-	}
-
-	samplingNum := calculateSampleSize(len(dataList))
-	sampledData := sampleData(dataList, samplingNum)
-
-	fmt.Printf("Sampled data: %s \n", strings.Join(sampledData, ", "))
-
-	user := openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleUser,
-		Content: strings.Join([]string{
-			"Create a pattern rule for these names:",
-			fmt.Sprintf("Names: %s", strings.Join(sampledData, ", ")),
+			fmt.Sprintf("Create a pattern rule for these sampling values: %s", strings.Join(sampledData, ", ")),
 		}, "\n"),
 	}
 
 	messages := []openai.ChatCompletionMessage{system, user}
-	const maxRounds = 3
+	const maxRounds = 5
 	for round := 1; round <= maxRounds; round++ {
-		fmt.Printf("\nmessages: %#v\n", messages)
+		if round == 4 {
+		    for _, message := range messages {
+			    fmt.Printf("%s: %s\n", message.Role, message.Content)
+		    }
+	    }
+
 		resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 			Model:    openai.GPT3Dot5Turbo, // or your preferred model
+			// Model:    openai.GPT5, // or your preferred model, 
+			// Model:    "deepseek-chat", // or your preferred model, 
 			Messages: messages,
-			Temperature: 0,
+			Temperature: 1,
 			Tools:    tools,
 		})
 		if err != nil {
@@ -612,55 +620,16 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
  * to conver all the source tables while it should not match any other tables.
  */
 func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, error) {
-	// client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
-
-    // splitTables(tables)
-
-	// tmpTables := []string{}
-	// Convert table names from instanceName.DBName.Table format to DBName.Table
-	// by removing the instanceName prefix
-	// dbList := []string{}
-	// tableList := []string{}
-	// for i := range tables {
-	// 	parts := strings.Split(tables[i], ".")
-	// 	if len(parts) == 3 {
-	// 		tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
-	// 	}
-	// 	found := false
-	// 	for _, db := range dbList {
-	// 		if db == parts[1] {
-	// 			found = true
-	// 			break
-	// 		}
-	// 	}
-	// 	if !found {
-	// 		dbList = append(dbList, parts[1])
-	// 	}
-
-	// 	found = false
-	// 	for _, table := range tableList {
-	// 		if table == parts[2] {
-	// 			found = true
-	// 			break
-	// 		}
-	// 	}
-	// 	if !found {
-	// 		tableList = append(tableList, parts[2])
-	// 	}
-	// }
-
 	var err error
-	// fmt.Printf("All the db: %s \n", strings.Join(dbList, ", "))
-	// fmt.Printf("All the tables: %s \n", strings.Join(tableList, ", "))
 
 	dbList, tableList := splitTables(tables)
-	dbListExclude, tableListExclude := splitTables(tablesShouldNotMatch)
+	_, tableListExclude := splitTables(tablesShouldNotMatch)
 
 	var dbRegex *string
 	if len(dbList) == 1 {
 		dbRegex = &dbList[0]
 	} else {
-		dbRegex, err = generateGeneralRegex(dbList, dbListExclude)
+		dbRegex, err = generateGeneralRegex(dbList, nil)
 		if err != nil {
 			fmt.Printf("Error generating regex for db: %v \n", err)
 			return nil, err
@@ -677,14 +646,17 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 			return nil, err
 		}
 	}
-	fmt.Printf("Generate db regex: %s \n", *dbRegex)
+	if dbRegex!= nil {
+	    fmt.Printf("Generate db regex: %s \n", *dbRegex)
+	} else {
+		fmt.Printf("db regex is nil \n")
+	}
 
 	if tableRegex != nil {
 		fmt.Printf("table regex: %s \n", *tableRegex)
 	} else {
 		fmt.Printf("table regex is nil \n")
 	}
-	fmt.Printf("-------------------------%#v ---- %#v \n\n", dbRegex, tableRegex)
 
 	if dbRegex == nil || tableRegex == nil {
 		emptyStr := ""
@@ -744,13 +716,14 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 	// testTables := []string{"order001", "order123", "order999", "orderabc", "other123"}
 	for _, table := range tables {
 		rules := ts.Match(schema, table)
-		if rules != nil {
-			fmt.Printf("OK: Table %s matched! Rules found: %+v\n", table, rules)
-		} else {
+		if rules == nil {
 			result.MissedMatches = append(result.MissedMatches, table)
 			fmt.Printf("NG: Table %s did not match any rules\n", table)
 			result.Valid = false
-		}
+		} 
+		// else {
+		// 	fmt.Printf("OK: Table %s matched! Rules found: %+v\n", table, rules)
+		// }
 	}
 
 	for _, table := range tablesShouldNotMatch {
@@ -759,10 +732,21 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 			result.FalsePositives = append(result.FalsePositives, table)
 			result.Valid = false
 			fmt.Printf("NG: Table %s matched! Rules found: %+v\n", table, rules)
-		} else {
-			// result.ShouldNotMatch = append(result.ShouldNotMatch, t)
-			fmt.Printf("OK: Table %s did not match any rules\n", table)
-		}
+		} 
+		// else {
+		// 	// result.ShouldNotMatch = append(result.ShouldNotMatch, t)
+		// 	fmt.Printf("OK: Table %s did not match any rules\n", table)
+		// }
+	}
+
+	if len(result.MissedMatches) > 0 {
+		result.Valid = false
+		result.Error = fmt.Sprintf("The validator reports these missed matches (see tool message). You must refine the rule so that all previously provided names match.")
+	}
+
+	if len(result.FalsePositives) > 0 {
+		result.Valid = false
+		result.Error = fmt.Sprintf("The validator reports false positives (see tool message). You must refine the rule so that all of %s are excluded.", strings.Join(result.FalsePositives, ", "))
 	}
 
 	return result
