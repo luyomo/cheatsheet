@@ -107,7 +107,7 @@ func startBinlogReplication(ctx context.Context, cfg *Config) error {
 		Port:      cfg.Port,
 		User:      cfg.User,
 		Password:  cfg.Password,
-		EventCacheCount: 2048,
+//		EventCacheCount: 2048,
 	}
 	
 	// Create binlog syncer

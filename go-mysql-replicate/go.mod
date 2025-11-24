@@ -4,10 +4,11 @@ go 1.23.0
 
 toolchain go1.24.10
 
-require github.com/go-mysql-org/go-mysql v1.13.0
+require github.com/go-mysql-org/go-mysql v1.12.0
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
@@ -21,3 +22,5 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
+
+replace github.com/go-mysql-org/go-mysql => /home/azureuser/workspace/go-mysql

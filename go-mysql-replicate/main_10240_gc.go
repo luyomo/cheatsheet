@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-//	"runtime"
-//	"runtime/debug"
+	"runtime"
+	"runtime/debug"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -107,7 +107,7 @@ func startBinlogReplication(ctx context.Context, cfg *Config) error {
 		Port:      cfg.Port,
 		User:      cfg.User,
 		Password:  cfg.Password,
-		EventCacheCount: 2048,
+//		EventCacheCount: 2048,
 	}
 	
 	// Create binlog syncer
@@ -179,10 +179,10 @@ func processEvents(ctx context.Context, streamer *replication.BinlogStreamer) er
 			fmt.Println("Context cancelled, stopping replication")
 			return nil
 		default:
-//			if eventCount % 1000 == 0 {
-//				runtime.GC()
-//				debug.FreeOSMemory()
-//			}
+			if eventCount % 1000 == 0 {
+				runtime.GC()
+				debug.FreeOSMemory()
+			}
 			// Use timeout to allow checking context cancellation
 			event, err := getEventWithTimeout(ctx, streamer, 2*time.Second)
 			if err != nil {
