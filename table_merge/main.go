@@ -46,6 +46,7 @@ var (
 	outputFile string
 	outputErr  string
 	configFile string
+	llmProduct string
 )
 
 var rootCmd = &cobra.Command{
@@ -55,6 +56,11 @@ var rootCmd = &cobra.Command{
 		// Exit if help flag is provided
 		if cmd.Flag("help").Value.String() == "true" {
 			os.Exit(0)
+		}
+
+		if llmProduct != "openai" && llmProduct != "deepseek" {
+			fmt.Printf("Error: LLM product must be either 'openai' or 'deepseek'\n")
+			os.Exit(1)
 		}
 	},
 }
@@ -66,6 +72,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&strTpl, "template", "t", "", "template command for dumpling")
 
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Config file")
+	rootCmd.PersistentFlags().StringVarP(&llmProduct, "llm", "a", "", "LLM product(openai,deepseek)")
+	
 
 	// Define flags for source and destination databases
 	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateSyncDiffconfig, generateMapping]")
@@ -158,10 +166,7 @@ func main() {
 		fmt.Printf("Failed to fetch table definition: %v \n", err)
 		return
 	}
-	// }
 
-	// for _, tableInfo := range tableStructure {
-	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 	// }
 
 	// fmt.Printf("template: %s \n", config.Template)
@@ -273,9 +278,6 @@ func main() {
 			}
 		}
 	}
-	// for _, tableInfo := range convertedTableStructure {
-	// 	fmt.Printf("md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", tableInfo.MD5Columns, tableInfo.MD5ColumnsWithTypes, tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
-	// }
 
 	tableStructure = convertedTableStructure
 
@@ -294,9 +296,19 @@ func main() {
 				data := struct {
 					SrcTable  string
 					DestTable string
+					SrcSchemaName string
+					SrcTableName string
+					DestSchemaName string
+					DestTableName string
+					InstanceName string
 				}{
 					SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
 					DestTable: fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
+					SrcSchemaName: srcParts[1],
+					SrcTableName: srcParts[2],
+					DestSchemaName: destParts[1],
+					DestTableName: destParts[2],
+					InstanceName: dbName,
 				}
 
 				var buf bytes.Buffer
@@ -330,9 +342,19 @@ func main() {
 							data := struct {
 								SrcTable  string
 								DestTable string
+								SrcSchemaName string
+					            SrcTableName string
+					            DestSchemaName string
+					            DestTableName string
+					            InstanceName string
 							}{
 								SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
 								DestTable: fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
+								SrcSchemaName: srcParts[1],
+					            SrcTableName: srcParts[2],
+					            DestSchemaName: destParts[1],
+					            DestTableName: destParts[2],
+					            InstanceName: dbName,
 							}
 
 							var buf bytes.Buffer
@@ -348,6 +370,7 @@ func main() {
 
 			// Case 3: Many-to-one consolidation
 			if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) == 1 {
+				fmt.Printf("----------------------- \n")
 				destTable := tableInfo.DestTableInfo[0]
 				destParts := strings.Split(destTable, ".")
 				for idx, srcTable := range tableInfo.SrcTableInfo {
@@ -356,9 +379,19 @@ func main() {
 					data := struct {
 						SrcTable  string
 						DestTable string
+						SrcSchemaName string
+					    SrcTableName string
+					    DestSchemaName string
+					    DestTableName string
+					    InstanceName string
 					}{
 						SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
 						DestTable: fmt.Sprintf("%s.%s.%05d{{.Index}}", destParts[1], destParts[2], idx+1),
+						SrcSchemaName: srcParts[1],
+					    SrcTableName: srcParts[2],
+					    DestSchemaName: destParts[1],
+					    DestTableName: destParts[2],
+					    InstanceName: dbName,
 					}
 
 					var buf bytes.Buffer
@@ -442,10 +475,14 @@ type RuleResult struct {
 }
 
 func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*string, error) {
-	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
-	// config := openai.DefaultConfig(os.Getenv("DEEPSEEK_API_KEY"))
-	// config.BaseURL="https://api.deepseek.com/v1"
-	// client := openai.NewClientWithConfig(config)
+    var client *openai.Client
+	if llmProduct == "deepseek" {
+        config := openai.DefaultConfig(os.Getenv("DEEPSEEK_API_KEY"))
+        config.BaseURL="https://api.deepseek.com/v1"
+        client = openai.NewClientWithConfig(config)
+	} else {
+		client = openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+	}
 
 	fmt.Printf("String to extract the regex: %s \n", strings.Join(dataList, ", "))
 
@@ -538,6 +575,12 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 		}, "\n"),
 	}
 
+	var model string
+	if llmProduct == "deepseek" {
+		model = "deepseek-chat"
+	} else {
+		model = openai.GPT3Dot5Turbo
+	}
 	messages := []openai.ChatCompletionMessage{system, user}
 	const maxRounds = 5
 	for round := 1; round <= maxRounds; round++ {
@@ -548,11 +591,9 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 	    }
 
 		resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
-			Model:    openai.GPT3Dot5Turbo, // or your preferred model
-			// Model:    openai.GPT5, // or your preferred model, 
-			// Model:    "deepseek-chat", // or your preferred model, 
+			Model: model,
 			Messages: messages,
-			Temperature: 1,
+			Temperature: 0.7,
 			Tools:    tools,
 		})
 		if err != nil {
@@ -785,14 +826,15 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 			MD5(GROUP_CONCAT(COLUMN_NAME ORDER BY COLUMN_NAME ASC SEPARATOR ',')),
 			MD5(GROUP_CONCAT(CONCAT_WS(':',         
 			    COLUMN_NAME,
-                COLUMN_TYPE,
+                DATA_TYPE,
                 IS_NULLABLE,
                 CHARACTER_MAXIMUM_LENGTH,
-                case when upper(COLUMN_TYPE) IN ('BIGINT', 'INT', 'MEDIUMINT', 'SMALLINT', 'TINYINT') then '0' else NUMERIC_PRECISION end,
+                case when upper(DATA_TYPE) IN ('BIGINT', 'INT', 'MEDIUMINT', 'SMALLINT', 'TINYINT') then '0' else NUMERIC_PRECISION end,
                 NUMERIC_SCALE,
                 DATETIME_PRECISION) ORDER BY COLUMN_NAME ASC SEPARATOR ','))
 		 FROM INFORMATION_SCHEMA.COLUMNS
 		WHERE TABLE_SCHEMA in ('%s') 
+		  AND COLUMN_NAME not in ('c_instance', 'c_schema', 'c_table')
 		GROUP BY TABLE_SCHEMA, TABLE_NAME
 		ORDER BY TABLE_SCHEMA, TABLE_NAME;
 	`, strings.Join(dbInfo.DBs, "','"))
@@ -843,11 +885,13 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 			if existing.MD5Columns == newTableInfo.MD5Columns &&
 				existing.MD5ColumnsWithTypes == newTableInfo.MD5ColumnsWithTypes {
 				if tableType == "source" {
-					(*tableStructure)[i].SrcTableInfo = append((*tableStructure)[i].SrcTableInfo,
+					existing.SrcTableInfo = append(existing.SrcTableInfo,
 						fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName))
+					(*tableStructure)[i] = existing
 				} else {
-					(*tableStructure)[i].DestTableInfo = append((*tableStructure)[i].DestTableInfo,
+					existing.DestTableInfo = append(existing.DestTableInfo,
 						fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName))
+					(*tableStructure)[i] = existing
 				}
 				found = true
 				break
