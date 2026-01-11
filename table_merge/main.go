@@ -6,16 +6,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"math/rand"
+	"os"
+	"sort"
+	"strings"
+	"text/template"
+
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
-	"log"
-	"os"
-	"sort"
-	"math/rand"
-	"strings"
-	"text/template"
 
 	_ "github.com/go-sql-driver/mysql"
 	selector "github.com/pingcap/tidb/pkg/util/table-rule-selector"
@@ -36,9 +37,9 @@ type TableInfo struct {
 	SrcRegex            string
 	SrcTableInfo        []string
 	DestTableInfo       []string
-    DestHasSource       bool
-    DestHasSchema       bool
-    DestHasTableName    bool
+	DestHasSource       bool
+	DestHasSchema       bool
+	DestHasTableName    bool
 }
 
 var (
@@ -76,7 +77,6 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Config file")
 	rootCmd.PersistentFlags().StringVarP(&llmProduct, "llm", "a", "", "LLM product(openai,deepseek)")
-	
 
 	// Define flags for source and destination databases
 	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateSyncDiffconfig, generateMapping]")
@@ -121,9 +121,9 @@ func main() {
 	tableStructure := []TableInfo{}
 
 	/*
-		Fetch source database table definitions and create a mapping where:
-	    - Key: MD5 hash of consolidated column definitions
-	    - Value: List of table names sharing the same column structure
+			Fetch source database table definitions and create a mapping where:
+		    - Key: MD5 hash of consolidated column definitions
+		    - Value: List of table names sharing the same column structure
 	*/
 	for _, sourceDB := range config.SourceDB {
 		err := fetch_table_def("source", &tableStructure, sourceDB)
@@ -160,9 +160,9 @@ func main() {
 	}
 
 	/*
-		Similarly, fetch destination database table definitions and create a mapping where:
-	    - Key: MD5 hash of consolidated column definitions
-	    - Value: List of table names sharing the same column structure
+			Similarly, fetch destination database table definitions and create a mapping where:
+		    - Key: MD5 hash of consolidated column definitions
+		    - Value: List of table names sharing the same column structure
 	*/
 	err = fetch_table_def("dest", &tableStructure, config.DestDB)
 	if err != nil {
@@ -307,23 +307,27 @@ func main() {
 				srcParts := strings.Split(tableInfo.SrcTableInfo[0], ".")
 				destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
 
+				sourceData := fetchDumpingSourceData(srcParts[0], srcParts[1], srcParts[2], tableInfo.DestHasSource, tableInfo.DestHasSchema, tableInfo.DestHasTableName)
+
 				dbName := strings.Split(srcTable, ".")[0]
 				data := struct {
-					SrcTable  string
-					DestTable string
-					SrcSchemaName string
-					SrcTableName string
+					SrcTable       string
+					DestTable      string
+					SrcSchemaName  string
+					SrcTableName   string
 					DestSchemaName string
-					DestTableName string
-					InstanceName string
+					DestTableName  string
+					InstanceName   string
+					SourceData     string
 				}{
-					SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
-					DestTable: fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
-					SrcSchemaName: srcParts[1],
-					SrcTableName: srcParts[2],
+					SrcTable:       fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
+					DestTable:      fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
+					SrcSchemaName:  srcParts[1],
+					SrcTableName:   srcParts[2],
 					DestSchemaName: destParts[1],
-					DestTableName: destParts[2],
-					InstanceName: dbName,
+					DestTableName:  destParts[2],
+					InstanceName:   dbName,
+					SourceData:     sourceData,
 				}
 
 				var buf bytes.Buffer
@@ -355,21 +359,21 @@ func main() {
 
 						if srcTableName == destTableName {
 							data := struct {
-								SrcTable  string
-								DestTable string
-								SrcSchemaName string
-					            SrcTableName string
-					            DestSchemaName string
-					            DestTableName string
-					            InstanceName string
+								SrcTable       string
+								DestTable      string
+								SrcSchemaName  string
+								SrcTableName   string
+								DestSchemaName string
+								DestTableName  string
+								InstanceName   string
 							}{
-								SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
-								DestTable: fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
-								SrcSchemaName: srcParts[1],
-					            SrcTableName: srcParts[2],
-					            DestSchemaName: destParts[1],
-					            DestTableName: destParts[2],
-					            InstanceName: dbName,
+								SrcTable:       fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
+								DestTable:      fmt.Sprintf("%s.%s.{{.Index}}", destParts[1], destParts[2]),
+								SrcSchemaName:  srcParts[1],
+								SrcTableName:   srcParts[2],
+								DestSchemaName: destParts[1],
+								DestTableName:  destParts[2],
+								InstanceName:   dbName,
 							}
 
 							var buf bytes.Buffer
@@ -390,23 +394,27 @@ func main() {
 				destParts := strings.Split(destTable, ".")
 				for idx, srcTable := range tableInfo.SrcTableInfo {
 					srcParts := strings.Split(srcTable, ".")
+					sourceData := fetchDumpingSourceData(srcParts[0], srcParts[1], srcParts[2], tableInfo.DestHasSource, tableInfo.DestHasSchema, tableInfo.DestHasTableName)
+
 					dbName := srcParts[0]
 					data := struct {
-						SrcTable  string
-						DestTable string
-						SrcSchemaName string
-					    SrcTableName string
-					    DestSchemaName string
-					    DestTableName string
-					    InstanceName string
+						SrcTable       string
+						DestTable      string
+						SrcSchemaName  string
+						SrcTableName   string
+						DestSchemaName string
+						DestTableName  string
+						InstanceName   string
+						SourceData     string
 					}{
-						SrcTable:  fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
-						DestTable: fmt.Sprintf("%s.%s.%05d{{.Index}}", destParts[1], destParts[2], idx+1),
-						SrcSchemaName: srcParts[1],
-					    SrcTableName: srcParts[2],
-					    DestSchemaName: destParts[1],
-					    DestTableName: destParts[2],
-					    InstanceName: dbName,
+						SrcTable:       fmt.Sprintf("%s.%s", srcParts[1], srcParts[2]),
+						DestTable:      fmt.Sprintf("%s.%s.%05d{{.Index}}", destParts[1], destParts[2], idx+1),
+						SrcSchemaName:  srcParts[1],
+						SrcTableName:   srcParts[2],
+						DestSchemaName: destParts[1],
+						DestTableName:  destParts[2],
+						InstanceName:   dbName,
+						SourceData:     sourceData,
 					}
 
 					var buf bytes.Buffer
@@ -490,11 +498,11 @@ type RuleResult struct {
 }
 
 func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*string, error) {
-    var client *openai.Client
+	var client *openai.Client
 	if llmProduct == "deepseek" {
-        config := openai.DefaultConfig(os.Getenv("DEEPSEEK_API_KEY"))
-        config.BaseURL="https://api.deepseek.com/v1"
-        client = openai.NewClientWithConfig(config)
+		config := openai.DefaultConfig(os.Getenv("DEEPSEEK_API_KEY"))
+		config.BaseURL = "https://api.deepseek.com/v1"
+		client = openai.NewClientWithConfig(config)
 	} else {
 		client = openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 	}
@@ -600,16 +608,16 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 	const maxRounds = 5
 	for round := 1; round <= maxRounds; round++ {
 		if round == 4 {
-		    for _, message := range messages {
-			    fmt.Printf("%s: %s\n", message.Role, message.Content)
-		    }
-	    }
+			for _, message := range messages {
+				fmt.Printf("%s: %s\n", message.Role, message.Content)
+			}
+		}
 
 		resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
-			Model: model,
-			Messages: messages,
+			Model:       model,
+			Messages:    messages,
 			Temperature: 0.7,
-			Tools:    tools,
+			Tools:       tools,
 		})
 		if err != nil {
 			log.Fatalf("ChatCompletion error (round %d): %v", round, err)
@@ -702,8 +710,8 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 			return nil, err
 		}
 	}
-	if dbRegex!= nil {
-	    fmt.Printf("Generate db regex: %s \n", *dbRegex)
+	if dbRegex != nil {
+		fmt.Printf("Generate db regex: %s \n", *dbRegex)
 	} else {
 		fmt.Printf("db regex is nil \n")
 	}
@@ -776,7 +784,7 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 			result.MissedMatches = append(result.MissedMatches, table)
 			fmt.Printf("NG: Table %s did not match any rules\n", table)
 			result.Valid = false
-		} 
+		}
 		// else {
 		// 	fmt.Printf("OK: Table %s matched! Rules found: %+v\n", table, rules)
 		// }
@@ -788,7 +796,7 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 			result.FalsePositives = append(result.FalsePositives, table)
 			result.Valid = false
 			fmt.Printf("NG: Table %s matched! Rules found: %+v\n", table, rules)
-		} 
+		}
 		// else {
 		// 	// result.ShouldNotMatch = append(result.ShouldNotMatch, t)
 		// 	fmt.Printf("OK: Table %s did not match any rules\n", table)
@@ -979,73 +987,89 @@ func readConfig(fileName string) (Config, error) {
 
 // calculateSampleSize determines how many items to sample from the input data
 func calculateSampleSize(totalItems int) int {
-    switch {
-    case totalItems <= 100:
-        return min(20, totalItems)
-    case totalItems <= 1000:
-        extraItems := int(0.01 * float64(totalItems-100))
-        return min(20+extraItems, 50)
-    default:
-        return 50
-    }
+	switch {
+	case totalItems <= 100:
+		return min(20, totalItems)
+	case totalItems <= 1000:
+		extraItems := int(0.01 * float64(totalItems-100))
+		return min(20+extraItems, 50)
+	default:
+		return 50
+	}
 }
 
 // sampleData takes a slice of data and returns a randomly sampled subset
 func sampleData(data []string, sampleSize int) []string {
-    if len(data) <= sampleSize {
-        return data
-    }
+	if len(data) <= sampleSize {
+		return data
+	}
 
-    // Create a copy to avoid modifying original data
-    shuffled := make([]string, len(data))
-    copy(shuffled, data)
+	// Create a copy to avoid modifying original data
+	shuffled := make([]string, len(data))
+	copy(shuffled, data)
 
-    // Fisher-Yates shuffle algorithm
-    for i := len(shuffled) - 1; i > 0; i-- {
-        j := rand.Intn(i + 1)
-        shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-    }
+	// Fisher-Yates shuffle algorithm
+	for i := len(shuffled) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
 
-    // Get sample and sort it before returning
-    sample := shuffled[:sampleSize]
-    sort.Strings(sample)
-    return sample
+	// Get sample and sort it before returning
+	sample := shuffled[:sampleSize]
+	sort.Strings(sample)
+	return sample
 }
 
 func splitTables(tables []string) ([]string, []string) {
-    tmpTables := []string{}
-    // Convert table names from instanceName.DBName.Table format to DBName.Table
-    // by removing the instanceName prefix
-    dbList := []string{}
-    tableList := []string{}
-    for i := range tables {
-        parts := strings.Split(tables[i], ".")
-        if len(parts) == 3 {
-	                       tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
-	               }
-	               found := false
-	               for _, db := range dbList {
-	                       if db == parts[1] {
-	                               found = true
-	                               break
-	                       }
-	               }
-	               if !found {
-	                       dbList = append(dbList, parts[1])
-	               }
-	
-	               found = false
-	               for _, table := range tableList {
-	                       if table == parts[2] {
-	                               found = true
-	                               break
-	                       }
-	               }
-	               if !found {
-	                       tableList = append(tableList, parts[2])
-	               }
-	       }
-	
-	       return dbList, tableList
+	tmpTables := []string{}
+	// Convert table names from instanceName.DBName.Table format to DBName.Table
+	// by removing the instanceName prefix
+	dbList := []string{}
+	tableList := []string{}
+	for i := range tables {
+		parts := strings.Split(tables[i], ".")
+		if len(parts) == 3 {
+			tmpTables = append(tmpTables, fmt.Sprintf("%s.%s", parts[1], parts[2]))
+		}
+		found := false
+		for _, db := range dbList {
+			if db == parts[1] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dbList = append(dbList, parts[1])
+		}
+
+		found = false
+		for _, table := range tableList {
+			if table == parts[2] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			tableList = append(tableList, parts[2])
+		}
 	}
-	
+
+	return dbList, tableList
+}
+
+func fetchDumpingSourceData(srcInstance, srcSchema, srcTable string, hasSourceCol, hasSchemaCol, hasTableCol bool) string {
+	if !hasSourceCol && !hasSchemaCol && !hasTableCol {
+		return fmt.Sprintf("--tables-list '%s.%s'", srcSchema, srcTable)
+	}
+	var selectCols []string
+	if hasSourceCol {
+		selectCols = append(selectCols, fmt.Sprintf("'%s' as c_source", srcInstance))
+	}
+	if hasSchemaCol {
+		selectCols = append(selectCols, fmt.Sprintf("'%s' as c_schema", srcSchema))
+	}
+	if hasTableCol {
+		selectCols = append(selectCols, fmt.Sprintf("'%s' as c_table", srcTable))
+	}
+	return fmt.Sprintf("-S \"SELECT *, %s FROM %s.%s\"", strings.Join(selectCols, ", "), srcSchema, srcTable)
+}
