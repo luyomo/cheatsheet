@@ -36,6 +36,9 @@ type TableInfo struct {
 	SrcRegex            string
 	SrcTableInfo        []string
 	DestTableInfo       []string
+    DestHasSource       bool
+    DestHasSchema       bool
+    DestHasTableName    bool
 }
 
 var (
@@ -280,6 +283,18 @@ func main() {
 	}
 
 	tableStructure = convertedTableStructure
+
+	for _, ti := range tableStructure {
+		fmt.Printf("MD5Columns: %s\n", ti.MD5Columns)
+		fmt.Printf("MD5ColumnsWithTypes: %s\n", ti.MD5ColumnsWithTypes)
+		fmt.Printf("SrcRegex: %s\n", ti.SrcRegex)
+		fmt.Printf("SrcTableInfo: %v\n", ti.SrcTableInfo)
+		fmt.Printf("DestTableInfo: %v\n", ti.DestTableInfo)
+		fmt.Printf("DestHasSource: %t\n", ti.DestHasSource)
+		fmt.Printf("DestHasSchema: %t\n", ti.DestHasSchema)
+		fmt.Printf("DestHasTableName: %t\n", ti.DestHasTableName)
+		fmt.Println("---")
+	}
 
 	if opsType == "generateDumpling" {
 
@@ -823,18 +838,31 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 		SELECT
 		    TABLE_SCHEMA, 
 			TABLE_NAME,
-			MD5(GROUP_CONCAT(COLUMN_NAME ORDER BY COLUMN_NAME ASC SEPARATOR ',')),
-			MD5(GROUP_CONCAT(CONCAT_WS(':',         
-			    COLUMN_NAME,
-                DATA_TYPE,
-                IS_NULLABLE,
-                CHARACTER_MAXIMUM_LENGTH,
-                case when upper(DATA_TYPE) IN ('BIGINT', 'INT', 'MEDIUMINT', 'SMALLINT', 'TINYINT') then '0' else NUMERIC_PRECISION end,
-                NUMERIC_SCALE,
-                DATETIME_PRECISION) ORDER BY COLUMN_NAME ASC SEPARATOR ','))
+			MD5(GROUP_CONCAT(
+              CASE WHEN COLUMN_NAME NOT IN ('c_instance', 'c_schema', 'c_table') 
+                THEN COLUMN_NAME 
+              END 
+            ORDER BY COLUMN_NAME ASC SEPARATOR ','
+            )),
+			MD5(GROUP_CONCAT(
+              CASE WHEN COLUMN_NAME NOT IN ('c_instance', 'c_schema', 'c_table') 
+                   THEN CONCAT_WS(':',         
+                          COLUMN_NAME,
+                          DATA_TYPE,
+                          IS_NULLABLE,
+                          CHARACTER_MAXIMUM_LENGTH,
+                          CASE WHEN UPPER(DATA_TYPE) IN ('BIGINT', 'INT', 'MEDIUMINT', 'SMALLINT', 'TINYINT') 
+                               THEN '0' ELSE NUMERIC_PRECISION END,
+                          NUMERIC_SCALE,
+                          DATETIME_PRECISION)
+                   END 
+              ORDER BY COLUMN_NAME ASC SEPARATOR ','
+         )),
+		 MAX(CASE WHEN COLUMN_NAME = 'c_instance' THEN 1 ELSE 0 END) AS DestHasSource,
+         MAX(CASE WHEN COLUMN_NAME = 'c_schema'   THEN 1 ELSE 0 END) AS DestHasSchema,
+         MAX(CASE WHEN COLUMN_NAME = 'c_table'    THEN 1 ELSE 0 END) AS DestHasTableName
 		 FROM INFORMATION_SCHEMA.COLUMNS
 		WHERE TABLE_SCHEMA in ('%s') 
-		  AND COLUMN_NAME not in ('c_instance', 'c_schema', 'c_table')
 		GROUP BY TABLE_SCHEMA, TABLE_NAME
 		ORDER BY TABLE_SCHEMA, TABLE_NAME;
 	`, strings.Join(dbInfo.DBs, "','"))
@@ -864,7 +892,8 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 	// 6. Iterate through the results
 	for rows.Next() {
 		var tableSchema, tableName, md5Columns, md5ColumnsWithTypes string
-		if err := rows.Scan(&tableSchema, &tableName, &md5Columns, &md5ColumnsWithTypes); err != nil {
+		var hasSource, hasSchema, hasTableName int
+		if err := rows.Scan(&tableSchema, &tableName, &md5Columns, &md5ColumnsWithTypes, &hasSource, &hasSchema, &hasTableName); err != nil {
 			log.Fatalf("Failed to scan row: %v", err)
 		}
 
@@ -891,6 +920,9 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 				} else {
 					existing.DestTableInfo = append(existing.DestTableInfo,
 						fmt.Sprintf("%s.%s.%s", dbInfo.Name, tableSchema, tableName))
+					existing.DestHasSource = hasSource == 1
+					existing.DestHasSchema = hasSchema == 1
+					existing.DestHasTableName = hasTableName == 1
 					(*tableStructure)[i] = existing
 				}
 				found = true
