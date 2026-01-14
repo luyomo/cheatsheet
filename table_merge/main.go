@@ -137,28 +137,6 @@ func main() {
 	// 	fmt.Printf("Failed to fetch table definition: %v \n", err)
 	// 	return
 	// }
-
-	if opsType == "sourceAnalyze" {
-		// fmt.Printf("Starting to analyze the source table and check the table structure \n")
-		// fmt.Printf("%#v \n", tableStructure)
-		for idx, table := range tableStructure {
-			if len(table.SrcTableInfo) > 1 {
-				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
-				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo[0], len(table.SrcTableInfo))
-			}
-
-		}
-
-		for idx, table := range tableStructure {
-			if len(table.SrcTableInfo) == 1 {
-				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
-				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo[0], len(table.SrcTableInfo))
-			}
-
-		}
-		return
-	}
-
 	/*
 			Similarly, fetch destination database table definitions and create a mapping where:
 		    - Key: MD5 hash of consolidated column definitions
@@ -169,7 +147,6 @@ func main() {
 		fmt.Printf("Failed to fetch table definition: %v \n", err)
 		return
 	}
-
 	// }
 
 	// fmt.Printf("template: %s \n", config.Template)
@@ -283,6 +260,46 @@ func main() {
 	}
 
 	tableStructure = convertedTableStructure
+
+	if opsType == "sourceAnalyze" {
+		// fmt.Printf("Starting to analyze the source table and check the table structure \n")
+		// fmt.Printf("%#v \n", tableStructure)
+		fmt.Printf("---------- Pattern 01: one-to-one pattern \n")
+		for idx, table := range tableStructure {
+			// fmt.Printf("%#v \n", table)
+			if len(table.SrcTableInfo) == 1 && len(table.DestTableInfo) == 1 {
+				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, Source table: %#v, Dest Table: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo[0], table.DestTableInfo[0])
+			}
+
+		}
+
+		fmt.Printf("\n\n---------- Pattern 02: multiple-to-one pattern(No PK conflict) \n")
+		for idx, table := range tableStructure {
+			if len(table.SrcTableInfo) > 1 && len(table.DestTableInfo) == 1 && (!table.DestHasTableName && !table.DestHasSchema && !table.DestHasSource) {
+				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, Source table(%d): %s ..., Dest Table: %s \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, len(table.SrcTableInfo), table.SrcTableInfo[0], table.SrcTableInfo[0])
+			}
+		}
+
+		fmt.Printf("\n\n---------- Pattern 03: multiple-to-one pattern(PK conflict) \n")
+		for idx, table := range tableStructure {
+			if len(table.SrcTableInfo) > 1 && len(table.DestTableInfo) == 1 && (table.DestHasTableName || table.DestHasSchema || table.DestHasSource) {
+				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, Source table(%d): %s ..., Dest Table: %s \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, len(table.SrcTableInfo), table.SrcTableInfo[0], table.DestTableInfo[0])
+			}
+		}
+
+		fmt.Printf("\n\n---------- Pattern 04: multiple-to-multiple pattern \n")
+		for idx, table := range tableStructure {
+			if len(table.SrcTableInfo) > 1 && len(table.DestTableInfo) > 1 {
+				// fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, dest tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+				fmt.Printf("idx: %d, md5: %s, md5 with type: %s, source table: %#v, # of source tables: %#v \n", idx, table.MD5Columns, table.MD5ColumnsWithTypes, table.SrcTableInfo, table.DestTableInfo)
+			}
+
+		}
+		return
+	}
 
 	for _, ti := range tableStructure {
 		fmt.Printf("MD5Columns: %s\n", ti.MD5Columns)
