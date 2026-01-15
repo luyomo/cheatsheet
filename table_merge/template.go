@@ -1,0 +1,178 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"text/template"
+)
+
+type SyncDiffConfig struct {
+	CheckThreadCount     int                    `yaml:"check-thread-count" json:"check_thread_count"`
+	ExportFixSQL         bool                   `yaml:"export-fix-sql" json:"export_fix_sql"`
+	CheckDataOnly        bool                   `yaml:"check-data-only" json:"check_data_only"`
+	CheckStructOnly      bool                   `yaml:"check-struct-only" json:"check_struct_only"`
+	SkipNonExistingTable bool                   `yaml:"skip-non-existing-table" json:"skip_non_existing_table"`
+	DataSources          map[string]DataSource  `yaml:"data-sources" json:"data_sources"`
+	Task                 TaskConfig             `yaml:"task" json:"task"`
+	Routes               map[string]RouteRule   `yaml:"routes,omitempty" json:"routes,omitempty"`
+	TableConfigs         map[string]TableConfig `yaml:"table-configs,omitempty" json:"table_configs,omitempty"`
+}
+
+// DataSource represents a database connection configuration
+type DataSource struct {
+	Host       string   `yaml:"host" json:"host"`
+	Port       int      `yaml:"port" json:"port"`
+	User       string   `yaml:"user" json:"user"`
+	Password   string   `yaml:"password" json:"password"`
+	TimeZone   string   `yaml:"time-zone,omitempty" json:"time_zone,omitempty"`
+	Location   string   `yaml:"location,omitempty" json:"location,omitempty"`
+	RouteRules []string `yaml:"route-rules,omitempty" json:"route_rules,omitempty"`
+}
+
+// TaskConfig represents the task configuration
+type TaskConfig struct {
+	OutputDir         string   `yaml:"output-dir" json:"output_dir"`
+	SourceInstances   []string `yaml:"source-instances" json:"source_instances"`
+	TargetInstance    string   `yaml:"target-instance" json:"target_instance"`
+	TargetCheckTables []string `yaml:"target-check-tables,omitempty" json:"target_check_tables,omitempty"`
+	TargetConfigs     []string `yaml:"target-configs,omitempty" json:"target_configs,omitempty"`
+}
+
+// RouteRule represents a routing rule for schema/table mapping
+type RouteRule struct {
+	SchemaPattern string `yaml:"schema-pattern" json:"schema_pattern"`
+	TablePattern  string `yaml:"table-pattern" json:"table_pattern"`
+	TargetSchema  string `yaml:"target-schema,omitempty" json:"target_schema,omitempty"`
+	TargetTable   string `yaml:"target-table,omitempty" json:"target_table,omitempty"`
+}
+
+// TableConfig represents table-specific configurations
+type TableConfig struct {
+	TargetTables  []string `yaml:"target-tables" json:"target_tables"`
+	IgnoreColumns []string `yaml:"ignore-columns" json:"ignore_columns"`
+}
+
+func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
+	if config == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	syncDiffConfig := SyncDiffConfig{
+		CheckThreadCount:     10,
+		ExportFixSQL:         true,
+		CheckDataOnly:        false,
+		CheckStructOnly:      false,
+		SkipNonExistingTable: false,
+		DataSources:          make(map[string]DataSource),
+		Task:                 TaskConfig{},
+		Routes:               make(map[string]RouteRule),
+		TableConfigs:         make(map[string]TableConfig),
+	}
+	// Map config to DataSources
+	for _, ds := range config.SourceDB {
+		syncDiffConfig.DataSources[ds.Name] = DataSource{
+			Host:     ds.Host,
+			Port:     ds.Port,
+			User:     ds.User,
+			Password: ds.Password,
+			// TimeZone:   ds.TimeZone,
+			// Location:   ds.Location,
+			// RouteRules: ds.RouteRules,
+		}
+	}
+
+	// Map config.DestDB (single struct) to DataSources as well
+	syncDiffConfig.DataSources[config.DestDB.Name] = DataSource{
+		Host:     config.DestDB.Host,
+		Port:     config.DestDB.Port,
+		User:     config.DestDB.User,
+		Password: config.DestDB.Password,
+		// TimeZone:   config.DestDB.TimeZone,
+		// Location:   config.DestDB.Location,
+		// RouteRules: config.DestDB.RouteRules,
+	}
+
+	// Map tableMapping to syncDiffConfig's Routes. If SrcRegex is not empty, use it as the TablePattern.
+	for _, tableInfo := range *tableMapping {
+		// routeKey := fmt.Sprintf("%s:%s", tableInfo.SrcTableInfo[0], tableInfo.DestTableInfo[0])
+		var schemaPattern, tablePattern, routeKey string
+		if tableInfo.SrcRegex == "" {
+			parts := strings.Split(tableInfo.SrcTableInfo[0], ".")
+			if len(parts) > 2 {
+				schemaPattern = parts[1]
+				tablePattern = parts[2]
+				routeKey = strings.Split(tableInfo.DestTableInfo[0], ".")[2]
+			}
+		} else {
+			parts := strings.Split(tableInfo.SrcRegex, ".")
+			if len(parts) > 1 {
+				schemaPattern = parts[0]
+				tablePattern = parts[1]
+				routeKey = strings.Split(tableInfo.DestTableInfo[0], ".")[2]
+			}
+		}
+		syncDiffConfig.Routes[routeKey] = RouteRule{
+			SchemaPattern: schemaPattern,
+			TablePattern:  tablePattern,
+			TargetSchema:  strings.Split(tableInfo.DestTableInfo[0], ".")[1],
+			TargetTable:   strings.Split(tableInfo.DestTableInfo[0], ".")[2],
+		}
+	}
+
+	// Build source-instances list from config.SourceDB names
+	sourceInstances := make([]string, 0, len(config.SourceDB))
+	for _, ds := range config.SourceDB {
+		sourceInstances = append(sourceInstances, ds.Name)
+	}
+
+	// Build target-check-tables list from tableMapping DestTableInfo
+	targetCheckTables := make([]string, 0, len(*tableMapping))
+	for _, tableInfo := range *tableMapping {
+		if len(tableInfo.DestTableInfo) > 0 {
+			// Convert instance.schemaName.TableName to schemaName.TableName
+			parts := strings.SplitN(tableInfo.DestTableInfo[0], ".", 3)
+			if len(parts) == 3 {
+				targetCheckTables = append(targetCheckTables, parts[1]+"."+parts[2])
+			} else {
+				targetCheckTables = append(targetCheckTables, tableInfo.DestTableInfo[0])
+			}
+		}
+	}
+	// Set Task field
+	syncDiffConfig.Task = TaskConfig{
+		// OutputDir:         config.OutputDir,
+		OutputDir:         "./output",
+		SourceInstances:   sourceInstances,
+		TargetInstance:    config.DestDB.Name,
+		TargetCheckTables: targetCheckTables,
+	}
+
+	fmt.Printf("%+v\n", syncDiffConfig)
+
+	// Read the template file
+	// Create or open the output file
+	outFile, err := os.Create("test.toml")
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outFile.Close()
+
+	// Read the template file
+	tmplBytes, err := os.ReadFile("templates/diff.tpl.toml")
+	if err != nil {
+		return fmt.Errorf("failed to read template file: %w", err)
+	}
+
+	// Parse the template
+	tmpl, err := template.New("diff").Parse(string(tmplBytes))
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	// Execute the template with the config data into the file
+	if err := tmpl.Execute(outFile, syncDiffConfig); err != nil {
+		return fmt.Errorf("failed to execute template: %w", err)
+	}
+	return nil
+}

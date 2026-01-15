@@ -477,6 +477,12 @@ func main() {
 				fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 			}
 		}
+
+		err = RenderSyncDiffConfig(&config, &tableStructure)
+		if err != nil {
+			fmt.Printf("Error rendering sync diff config: %v\n", err)
+			return
+		}
 	}
 
 	if opsType == "generateMapping" {

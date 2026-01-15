@@ -1,0 +1,65 @@
+# TiDB Data Migration Configuration Template
+
+# Global settings
+check-thread-count = {{.CheckThreadCount}}
+export-fix-sql = {{.ExportFixSQL}}
+check-data-only = {{.CheckDataOnly}}
+check-struct-only = {{.CheckStructOnly}}
+skip-non-existing-table = {{.SkipNonExistingTable}}
+
+# Data sources configuration
+[data-sources]
+{{- range $key, $ds := .DataSources}}
+[data-sources.{{$key}}]
+    host = "{{$ds.Host}}"
+    port = {{$ds.Port}}
+    user = "{{$ds.User}}"
+    password = "{{$ds.Password}}"
+    {{- if $ds.TimeZone}}
+    time-zone = "{{$ds.TimeZone}}"
+    {{- end}}
+    {{- if $ds.Location}}
+    location = "{{$ds.Location}}"
+    {{- end}}
+    {{- if $ds.RouteRules}}
+    route-rules = [{{range $i, $rule := $ds.RouteRules}}{{if $i}}, {{end}}"{{$rule}}"{{end}}]
+    {{- end}}
+{{- end}}
+
+# Task configuration
+[task]
+    output-dir = "{{.Task.OutputDir}}"
+    source-instances = [{{range $i, $instance := .Task.SourceInstances}}{{if $i}}, {{end}}"{{$instance}}"{{end}}]
+    target-instance = "{{.Task.TargetInstance}}"
+    {{- if .Task.TargetCheckTables}}
+    target-check-tables = [{{range $i, $table := .Task.TargetCheckTables}}{{if $i}}, {{end}}"{{$table}}"{{end}}]
+    {{- end}}
+    {{- if .Task.TargetConfigs}}
+    target-configs= [{{range $i, $config := .Task.TargetConfigs}}{{if $i}}, {{end}}"{{$config}}"{{end}}]
+    {{- end}}
+
+# Route rules
+{{- if .Routes}}
+[routes]
+{{- range $key, $route := .Routes}}
+[routes.{{$key}}]
+schema-pattern = "{{$route.SchemaPattern}}"
+table-pattern = "{{$route.TablePattern}}"
+{{- if $route.TargetSchema}}
+target-schema = "{{$route.TargetSchema}}"
+{{- end}}
+{{- if $route.TargetTable}}
+target-table = "{{$route.TargetTable}}"
+{{- end}}
+{{- end}}
+{{- end}}
+
+# Table configurations
+{{- if .TableConfigs}}
+[table-configs]
+{{- range $key, $config := .TableConfigs}}
+[table-configs.{{$key}}]
+target-tables = [{{range $i, $table := $config.TargetTables}}{{if $i}}, {{end}}"{{$table}}"{{end}}]
+ignore-columns = [{{range $i, $col := $config.IgnoreColumns}}{{if $i}}, {{end}}"{{$col}}"{{end}}]
+{{- end}}
+{{- end}}
