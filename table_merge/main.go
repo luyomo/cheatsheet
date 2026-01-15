@@ -3,14 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"os"
-	"sort"
 	"strings"
 	"text/template"
 
@@ -445,6 +444,7 @@ func main() {
 		}
 	}
 
+	mapPatterns := make(map[string]string)
 	if opsType == "generateSyncDiffconfig" {
 		for idx := range tableStructure {
 			if len(tableStructure[idx].SrcTableInfo) > 2 {
@@ -456,10 +456,11 @@ func main() {
 					}
 				}
 
-				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables)
+				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables, mapPatterns)
 				if err != nil {
 					fmt.Printf("------ Error generating regex: %v\n", err)
 				}
+
 				if regex != nil {
 					tableStructure[idx].SrcRegex = *regex
 				} else {
@@ -488,7 +489,7 @@ func main() {
 					}
 				}
 
-				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables)
+				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables, mapPatterns)
 				if err != nil {
 					fmt.Printf("------ Error generating regex: %v\n", err)
 				}
@@ -524,7 +525,7 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 		client = openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 	}
 
-	fmt.Printf("String to extract the regex: %s \n", strings.Join(dataList, ", "))
+	fmt.Printf("---------- String to extract the regex: %s \n", strings.Join(dataList, ", "))
 
 	tools := []openai.Tool{
 		{
@@ -690,9 +691,9 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
 		}
 	}
 
-	fmt.Println("Stopped after max rounds without a final answer. \n")
+	fmt.Println("********** Failed: Stopped after max rounds without a final answer. ")
 
-	return nil, nil
+	return nil, fmt.Errorf("failed to generate regex")
 }
 
 /*
@@ -700,7 +701,7 @@ func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*
  * only allow one routes.rule to compare the data between source tables and destination table. The only one regex is required
  * to conver all the source tables while it should not match any other tables.
  */
-func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, error) {
+func generateRegex(tables []string, tablesShouldNotMatch []string, mapPatterns map[string]string) (*string, error) {
 	var err error
 
 	dbList, tableList := splitTables(tables)
@@ -710,10 +711,20 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 	if len(dbList) == 1 {
 		dbRegex = &dbList[0]
 	} else {
-		dbRegex, err = generateGeneralRegex(dbList, nil)
-		if err != nil {
-			fmt.Printf("Error generating regex for db: %v \n", err)
-			return nil, err
+		// Calculate MD5 of dbList and lookup in mapPatterns
+		dbListStr := strings.Join(dbList, ",")
+		dbListMD5 := fmt.Sprintf("%x", md5.Sum([]byte(dbListStr)))
+		if cachedRegex, ok := mapPatterns[dbListMD5]; ok {
+			dbRegex = &cachedRegex
+		} else {
+			dbRegex, err = generateGeneralRegex(dbList, nil)
+			if err != nil {
+				fmt.Printf("Error generating regex for db: %v \n", err)
+				return nil, err
+			}
+			if dbRegex != nil {
+				mapPatterns[dbListMD5] = *dbRegex
+			}
 		}
 	}
 
@@ -721,12 +732,21 @@ func generateRegex(tables []string, tablesShouldNotMatch []string) (*string, err
 	if len(tableList) == 1 {
 		tableRegex = &tableList[0]
 	} else {
-		tableRegex, err = generateGeneralRegex(tableList, tableListExclude)
-		if err != nil {
-			fmt.Printf("Error generating regex for db: %v \n", err)
-			return nil, err
+		tableListMD5 := fmt.Sprintf("%x", md5.Sum([]byte(strings.Join(tableList, ","))))
+		if cachedRegex, ok := mapPatterns[tableListMD5]; ok {
+			tableRegex = &cachedRegex
+		} else {
+			tableRegex, err = generateGeneralRegex(tableList, tableListExclude)
+			if err != nil {
+				fmt.Printf("Error generating regex for table: %v \n", err)
+				return nil, err
+			}
+			if tableRegex != nil {
+				mapPatterns[tableListMD5] = *tableRegex
+			}
 		}
 	}
+
 	if dbRegex != nil {
 		fmt.Printf("Generate db regex: %s \n", *dbRegex)
 	} else {
@@ -771,9 +791,7 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 	// Create a rule for tables
 	// Let's say we want to match all tables that:
 	// - Are in schema "mydb"
-	// - Start with "order" followed by 3 digits
 	schema := "mydb"
-	// tablePattern := "order[0-9][0-9][0-9]"
 
 	// Define a rule (can be any type)
 	rulePattern := struct {
@@ -793,8 +811,7 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 		return result
 	}
 
-	// Test some table names
-	// testTables := []string{"order001", "order123", "order999", "orderabc", "other123"}
+	// Test all the tables which should match the rule
 	for _, table := range tables {
 		rules := ts.Match(schema, table)
 		if rules == nil {
@@ -802,11 +819,9 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 			fmt.Printf("NG: Table %s did not match any rules\n", table)
 			result.Valid = false
 		}
-		// else {
-		// 	fmt.Printf("OK: Table %s matched! Rules found: %+v\n", table, rules)
-		// }
 	}
 
+	// Test all the tables which should not match the rule
 	for _, table := range tablesShouldNotMatch {
 		rules := ts.Match(schema, table)
 		if rules != nil {
@@ -814,20 +829,16 @@ func rule_is_valid(pattern string, tables []string, tablesShouldNotMatch []strin
 			result.Valid = false
 			fmt.Printf("NG: Table %s matched! Rules found: %+v\n", table, rules)
 		}
-		// else {
-		// 	// result.ShouldNotMatch = append(result.ShouldNotMatch, t)
-		// 	fmt.Printf("OK: Table %s did not match any rules\n", table)
-		// }
 	}
 
 	if len(result.MissedMatches) > 0 {
 		result.Valid = false
-		result.Error = fmt.Sprintf("The validator reports these missed matches (see tool message). You must refine the rule so that all previously provided names match.")
+		result.Error = "The validator reports these missed matches (see tool message). You must refine the rule so that all previously provided names match."
 	}
 
 	if len(result.FalsePositives) > 0 {
 		result.Valid = false
-		result.Error = fmt.Sprintf("The validator reports false positives (see tool message). You must refine the rule so that all of %s are excluded.", strings.Join(result.FalsePositives, ", "))
+		result.Error = fmt.Sprintf("%s \nThe validator reports false positives (see tool message). You must refine the rule so that all of names are excluded.", result.Error)
 	}
 
 	return result
@@ -1021,19 +1032,21 @@ func sampleData(data []string, sampleSize int) []string {
 		return data
 	}
 
-	// Create a copy to avoid modifying original data
-	shuffled := make([]string, len(data))
-	copy(shuffled, data)
+	half := sampleSize / 2
+	sample := make([]string, 0, sampleSize)
 
-	// Fisher-Yates shuffle algorithm
-	for i := len(shuffled) - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-	}
+	// Take first half
+	sample = append(sample, data[:half]...)
 
-	// Get sample and sort it before returning
-	sample := shuffled[:sampleSize]
-	sort.Strings(sample)
+	// Add middle placeholder
+	middleCount := len(data) - sampleSize
+	sample = append(sample, fmt.Sprintf("... other %d element ...", middleCount))
+
+	// Take last half
+	sample = append(sample, data[len(data)-half:]...)
+
+	// Sort the sample before returning
+	// sort.Strings(sample)
 	return sample
 }
 
