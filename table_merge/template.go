@@ -69,8 +69,29 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 		Routes:               make(map[string]RouteRule),
 		TableConfigs:         make(map[string]TableConfig),
 	}
+
 	// Map config to DataSources
 	for _, ds := range config.SourceDB {
+
+		// Collect route rules for this data source
+		var routeRules []string
+		for _, tableInfo := range *tableMapping {
+			// Extract instance name from SrcTableInfo
+			destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
+			var ruleName string
+			if len(destParts) > 2 {
+				ruleName = "r_" + destParts[2]
+			}
+			for _, src := range tableInfo.SrcTableInfo {
+				parts := strings.Split(src, ".")
+				if len(parts) > 0 && parts[0] == ds.Name {
+					// src format: instance.schemaName.TableName -> rule_TableName
+					// ruleName := "r_" + parts[len(parts)-1]
+					routeRules = append(routeRules, ruleName)
+					break // at least one matched, append and stop checking further
+				}
+			}
+		}
 		syncDiffConfig.DataSources[ds.Name] = DataSource{
 			Host:     ds.Host,
 			Port:     ds.Port,
@@ -78,7 +99,7 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 			Password: ds.Password,
 			// TimeZone:   ds.TimeZone,
 			// Location:   ds.Location,
-			// RouteRules: ds.RouteRules,
+			RouteRules: routeRules,
 		}
 	}
 
@@ -96,20 +117,19 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	// Map tableMapping to syncDiffConfig's Routes. If SrcRegex is not empty, use it as the TablePattern.
 	for _, tableInfo := range *tableMapping {
 		// routeKey := fmt.Sprintf("%s:%s", tableInfo.SrcTableInfo[0], tableInfo.DestTableInfo[0])
-		var schemaPattern, tablePattern, routeKey string
+		var schemaPattern, tablePattern string
+		routeKey := "r_" + strings.Split(tableInfo.DestTableInfo[0], ".")[2]
 		if tableInfo.SrcRegex == "" {
 			parts := strings.Split(tableInfo.SrcTableInfo[0], ".")
 			if len(parts) > 2 {
 				schemaPattern = parts[1]
 				tablePattern = parts[2]
-				routeKey = strings.Split(tableInfo.DestTableInfo[0], ".")[2]
 			}
 		} else {
 			parts := strings.Split(tableInfo.SrcRegex, ".")
 			if len(parts) > 1 {
 				schemaPattern = parts[0]
 				tablePattern = parts[1]
-				routeKey = strings.Split(tableInfo.DestTableInfo[0], ".")[2]
 			}
 		}
 		syncDiffConfig.Routes[routeKey] = RouteRule{

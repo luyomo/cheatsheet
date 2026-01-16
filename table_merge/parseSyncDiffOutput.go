@@ -22,6 +22,14 @@ type TableResult struct {
 	Result           string
 }
 
+type SyncDiffOutput struct {
+	EquivalentTables   []TableResult `json:"equivalent_tables"`
+	InconsistentTables []TableResult `json:"inconsistent_tables"`
+	TotalEquivalent    int           `json:"total_equivalent"`
+	TotalInconsistent  int           `json:"total_inconsistent"`
+	AllEquivalent      bool          `json:"all_equivalent"`
+}
+
 // ParseSummary parses the sync_diff_inspector summary file
 func ParseSummary(filePath string) ([]TableResult, []TableResult, error) {
 	file, err := os.Open(filePath)
@@ -158,25 +166,18 @@ func PrintResults(equivalent, inconsistent []TableResult) {
 		fmt.Printf("    Result: %s\n\n", t.Result)
 	}
 }
-
-func ParseSyncDiffOutput(summaryFile string) error {
+func ParseSyncDiffOutput(summaryFile string) (*SyncDiffOutput, error) {
 	equivalent, inconsistent, err := ParseSummary(summaryFile)
 	if err != nil {
 		fmt.Printf("Error parsing summary: %v\n", err)
-		return err
+		return nil, err
 	}
 
 	PrintResults(equivalent, inconsistent)
 
 	// Example: Create JSON output
 	fmt.Println("\n=== JSON OUTPUT ===")
-	output := struct {
-		EquivalentTables   []TableResult `json:"equivalent_tables"`
-		InconsistentTables []TableResult `json:"inconsistent_tables"`
-		TotalEquivalent    int           `json:"total_equivalent"`
-		TotalInconsistent  int           `json:"total_inconsistent"`
-		AllEquivalent      bool          `json:"all_equivalent"`
-	}{
+	output := &SyncDiffOutput{
 		EquivalentTables:   equivalent,
 		InconsistentTables: inconsistent,
 		TotalEquivalent:    len(equivalent),
@@ -191,5 +192,5 @@ func ParseSyncDiffOutput(summaryFile string) error {
 	fmt.Printf("\nSummary: %d equivalent, %d inconsistent, All Equivalent: %v\n",
 		len(equivalent), len(inconsistent), len(inconsistent) == 0)
 
-	return nil
+	return output, nil
 }

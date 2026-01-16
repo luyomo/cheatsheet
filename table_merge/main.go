@@ -446,6 +446,14 @@ func main() {
 
 	mapPatterns := make(map[string]string)
 	if opsType == "generateSyncDiffconfig" {
+		var syncDiffOutput *SyncDiffOutput
+		if _, err := os.Stat("./output/summary.txt"); err == nil {
+			syncDiffOutput, err = ParseSyncDiffOutput("./output/summary.txt")
+			if err != nil {
+				fmt.Printf("Error parsing sync diff output: %v\n", err)
+				return
+			}
+		}
 		for idx := range tableStructure {
 			if len(tableStructure[idx].SrcTableInfo) > 2 {
 				// Get all source tables except the current one
@@ -478,10 +486,36 @@ func main() {
 			}
 		}
 
-		err = RenderSyncDiffConfig(&config, &tableStructure)
-		if err != nil {
-			fmt.Printf("Error rendering sync diff config: %v\n", err)
-			return
+		// Filter tableStructure to keep only those that failed in syncDiffOutput
+		if syncDiffOutput != nil && len(syncDiffOutput.InconsistentTables) > 0 {
+			filtered := make([]TableInfo, 0, len(tableStructure))
+			for _, ti := range tableStructure {
+				for _, failed := range syncDiffOutput.InconsistentTables {
+					// Match by source table names
+					for _, src := range ti.DestTableInfo {
+						// Convert from instance.schemaName.tableName to schemaName.tableName
+						parts := strings.Split(src, ".")
+						if len(parts) == 3 {
+							converted := fmt.Sprintf("%s.%s", parts[1], parts[2])
+							if converted == failed.FullName {
+								filtered = append(filtered, ti)
+								break
+							}
+						}
+					}
+				}
+			}
+			err = RenderSyncDiffConfig(&config, &filtered)
+			if err != nil {
+				fmt.Printf("Error rendering sync diff config: %v\n", err)
+				return
+			}
+		} else {
+			err = RenderSyncDiffConfig(&config, &tableStructure)
+			if err != nil {
+				fmt.Printf("Error rendering sync diff config: %v\n", err)
+				return
+			}
 		}
 	}
 
