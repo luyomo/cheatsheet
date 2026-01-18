@@ -168,6 +168,53 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 		TargetCheckTables: targetCheckTables,
 	}
 
+	var mapExcludeColumns = make(map[string][]string)
+	// Build mapExcludeColumns: key is c_instance / c_instance,c_schema / c_instance,c_schema,c_table
+	// depending on tableMapping element's DestHasSource / DestHasSchema / DestHasTableName flags.
+	// The value is the list of columns to exclude from the check.
+	for _, tbl := range *tableMapping {
+		var key string
+		destParts := strings.Split(tbl.DestTableInfo[0], ".")
+		if len(destParts) < 3 {
+			continue
+		}
+		schema := destParts[1]
+		table := destParts[2]
+
+		parts := []string{}
+		if tbl.DestHasSource {
+			parts = append(parts, "c_instance")
+		}
+		if tbl.DestHasSchema {
+			parts = append(parts, "c_schema")
+		}
+		if tbl.DestHasTableName {
+			parts = append(parts, "c_table")
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		key = strings.Join(parts, ",")
+		mapExcludeColumns[key] = append(mapExcludeColumns[key], schema+"."+table)
+	}
+
+	// Loop mapExcludeColumns and prepare the TableConfigs
+	idx := 0
+	for key, tables := range mapExcludeColumns {
+		// Determine which columns to ignore based on the key
+		var ignoreCols = strings.Split(key, ",")
+
+		// Create a TableConfig entry for this key
+		cfgKey := fmt.Sprintf("cfg_%d", idx)
+		syncDiffConfig.TableConfigs[cfgKey] = TableConfig{
+			TargetTables:  tables,
+			IgnoreColumns: ignoreCols,
+		}
+
+		syncDiffConfig.Task.TargetConfigs = append(syncDiffConfig.Task.TargetConfigs, cfgKey)
+		idx = idx + 1
+	}
+
 	fmt.Printf("%+v\n", syncDiffConfig)
 
 	// Read the template file
