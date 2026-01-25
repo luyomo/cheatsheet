@@ -243,3 +243,84 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	}
 	return nil
 }
+
+func RenderDMSourceConfig(config *Config) error {
+	if config == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	// Define the data structure for the template
+	type DMTemplateData struct {
+		SourceID        string
+		ServerID        int
+		Flavor          string
+		EnableGTID      bool
+		EnableRelay     bool
+		RelayBinlogName string
+		RelayBinlogGTID string
+		Host            string
+		User            string
+		Password        string
+		Port            int
+		EnableChecker   bool
+	}
+
+	// Template string
+	const dmTemplate = `source-id: "{{.SourceID}}"
+server-id: {{.ServerID}}
+flavor: "{{with .Flavor}}{{.}}{{else}}mysql{{end}}"
+enable-gtid: {{.EnableGTID}}
+
+# Relay log settings
+enable-relay: {{.EnableRelay}}
+relay-binlog-name: "{{.RelayBinlogName}}"
+relay-binlog-gtid: "{{.RelayBinlogGTID}}"
+
+# Connection details
+from:
+  host: "{{.Host}}"
+  user: "{{.User}}"
+  password: "{{.Password}}"
+  port: {{.Port}}
+
+# Pre-migration checks
+checker:
+  check-enable: {{.EnableChecker}}
+`
+
+	// Loop over each source DB and generate a config file
+	for i, db := range config.SourceDB {
+		data := DMTemplateData{
+			SourceID:      fmt.Sprintf("mysql-sourcedb-%d", 10000+i),
+			ServerID:      10000 + i,
+			Flavor:        "mysql",
+			EnableGTID:    false,
+			EnableRelay:   false,
+			EnableChecker: true,
+			Host:          db.Host,
+			Port:          db.Port,
+			User:          db.User,
+			Password:      db.Password,
+		}
+
+		// Parse and execute the template
+		tmpl, err := template.New("dm").Parse(dmTemplate)
+		if err != nil {
+			return fmt.Errorf("failed to parse DM template: %w", err)
+		}
+
+		// Create output file
+		outFileName := fmt.Sprintf("dm-source-%s.yaml", db.Name)
+		outFile, err := os.Create(outFileName)
+		if err != nil {
+			return fmt.Errorf("failed to create output file %s: %w", outFileName, err)
+		}
+		defer outFile.Close()
+
+		if err := tmpl.Execute(outFile, data); err != nil {
+			return fmt.Errorf("failed to execute template for %s: %w", db.Name, err)
+		}
+	}
+
+	return nil
+}

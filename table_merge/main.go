@@ -78,7 +78,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&llmProduct, "llm", "a", "", "LLM product(openai,deepseek)")
 
 	// Define flags for source and destination databases
-	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateSyncDiffconfig, generateMapping]")
+	rootCmd.PersistentFlags().StringVar(&opsType, "ops-type", "", "OPS type[sourceAnalyze, generateDumpling, generateSyncDiffconfig, generateMapping, generateDMConfig]")
 
 	rootCmd.PersistentFlags().StringVar(&srcDBInfo.Host, "src-host", "", "Source database host")
 	rootCmd.PersistentFlags().IntVar(&srcDBInfo.Port, "src-port", 4000, "Source database port")
@@ -485,6 +485,14 @@ func main() {
 				fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 			}
 		}
+
+		/****** DM Test ****/
+		err := RenderDMSourceConfig(&config)
+		if err != nil {
+			fmt.Printf("Error rendering DM source config: %v\n", err)
+			return
+		}
+		/****** DM Test ****/
 
 		// Filter tableStructure to keep only those that failed in syncDiffOutput
 		if syncDiffOutput != nil && len(syncDiffOutput.InconsistentTables) > 0 {
