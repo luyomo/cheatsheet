@@ -492,6 +492,12 @@ func main() {
 			fmt.Printf("Error rendering DM source config: %v\n", err)
 			return
 		}
+
+		err = RenderDMTaskConfig(&config, &tableStructure)
+		if err != nil {
+			fmt.Printf("Error rendering DM task config: %v\n", err)
+			return
+		}
 		/****** DM Test ****/
 
 		// Filter tableStructure to keep only those that failed in syncDiffOutput

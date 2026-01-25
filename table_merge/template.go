@@ -324,3 +324,107 @@ checker:
 
 	return nil
 }
+
+func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
+	if config == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	// Define the data structure for the template
+	type DMTaskTemplateData struct {
+		Name       string
+		TaskMode   string
+		IsSharding bool
+		MetaSchema string
+		TargetDB   struct {
+			Host     string
+			Port     int
+			User     string
+			Password string
+		}
+		MySQLInstances []struct {
+			SourceID   string
+			RouteRules []string
+		}
+		Validators struct {
+			Mode        string
+			WorkerCount int
+			ErrorDelay  string
+		}
+	}
+
+	// Read the template file
+	tmplBytes, err := os.ReadFile("templates/task.tpl.toml")
+	if err != nil {
+		return fmt.Errorf("failed to read template file: %w", err)
+	}
+
+	// Prepare template data
+	data := DMTaskTemplateData{
+		Name:       "dm-task",
+		TaskMode:   "all",
+		IsSharding: true,
+		MetaSchema: "dm_meta",
+		TargetDB: struct {
+			Host     string
+			Port     int
+			User     string
+			Password string
+		}{
+			Host:     config.DestDB.Host,
+			Port:     config.DestDB.Port,
+			User:     config.DestDB.User,
+			Password: config.DestDB.Password,
+		},
+		Validators: struct {
+			Mode        string
+			WorkerCount int
+			ErrorDelay  string
+		}{
+			Mode:        "full",
+			WorkerCount: 4,
+			ErrorDelay:  "0s",
+		},
+	}
+
+	// Build MySQL instances
+	for i, _ := range config.SourceDB {
+		instance := struct {
+			SourceID   string
+			RouteRules []string
+		}{
+			SourceID: fmt.Sprintf("mysql-sourcedb-%d", 10000+i),
+		}
+
+		// Collect route rules for this instance
+		for _, tableInfo := range *tableMapping {
+			destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
+			if len(destParts) > 2 {
+				ruleName := "r_" + destParts[2]
+				instance.RouteRules = append(instance.RouteRules, ruleName)
+			}
+		}
+
+		data.MySQLInstances = append(data.MySQLInstances, instance)
+	}
+
+	// Parse the template
+	tmpl, err := template.New("dm-task").Parse(string(tmplBytes))
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	// Create output file
+	outFile, err := os.Create("dm-task.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outFile.Close()
+
+	// Execute the template
+	if err := tmpl.Execute(outFile, data); err != nil {
+		return fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	return nil
+}
