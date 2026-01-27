@@ -343,14 +343,17 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 			Password string
 		}
 		MySQLInstances []struct {
-			SourceID   string
-			RouteRules []string
+			SourceID     string
+			InstanceName string
+			RouteRules   []string
 		}
 		Validators struct {
 			Mode        string
 			WorkerCount int
 			ErrorDelay  string
 		}
+		AllowList map[string][]string
+		Routes    map[string]RouteRule
 	}
 
 	// Read the template file
@@ -362,7 +365,7 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 	// Prepare template data
 	data := DMTaskTemplateData{
 		Name:       "dm-task",
-		TaskMode:   "all",
+		TaskMode:   "incremental",
 		IsSharding: true,
 		MetaSchema: "dm_meta",
 		TargetDB: struct {
@@ -385,19 +388,26 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 			WorkerCount: 4,
 			ErrorDelay:  "30s",
 		},
+		AllowList: map[string][]string{},
+		Routes:    make(map[string]RouteRule),
 	}
 
 	// Build MySQL instances
 	for i, dbConnInfo := range config.SourceDB {
 		instance := struct {
-			SourceID   string
-			RouteRules []string
+			SourceID     string
+			InstanceName string
+			RouteRules   []string
 		}{
-			SourceID: fmt.Sprintf("mysql-sourcedb-%d", 10000+i),
+			InstanceName: dbConnInfo.Name,
+			SourceID:     fmt.Sprintf("mysql-sourcedb-%d", 10000+i),
 		}
+
+		allowList := []string{}
 
 		// Collect route rules for this instance
 		for _, tableInfo := range *tableMapping {
+			// 01. Prepare the route name from the regrex and dest table name
 			if tableInfo.SrcRegex == "" {
 				destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
 				srcParts := strings.Split(tableInfo.SrcTableInfo[0], ".")
@@ -422,9 +432,57 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 				}
 			}
 
+			// Loop the tableInfo.SrcTableInfo and add the db name into allowList if it does not exists.
+			// The SrcTableInfo format is instanceName.SchemaName.TableName
+			for _, src := range tableInfo.SrcTableInfo {
+				parts := strings.Split(src, ".")
+				if len(parts) > 1 {
+					instanceName := parts[0]
+					dbName := parts[1]
+					if instanceName != dbConnInfo.Name {
+						continue
+					}
+					found := false
+					for _, existing := range allowList {
+						if existing == dbName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						allowList = append(allowList, dbName)
+					}
+				}
+			}
 		}
 
 		data.MySQLInstances = append(data.MySQLInstances, instance)
+		data.AllowList[dbConnInfo.Name] = allowList
+	}
+
+	for _, tableInfo := range *tableMapping {
+		// routeKey := fmt.Sprintf("%s:%s", tableInfo.SrcTableInfo[0], tableInfo.DestTableInfo[0])
+		var schemaPattern, tablePattern string
+		routeKey := "r_" + strings.Split(tableInfo.DestTableInfo[0], ".")[2]
+		if tableInfo.SrcRegex == "" {
+			parts := strings.Split(tableInfo.SrcTableInfo[0], ".")
+			if len(parts) > 2 {
+				schemaPattern = parts[1]
+				tablePattern = parts[2]
+			}
+		} else {
+			parts := strings.Split(tableInfo.SrcRegex, ".")
+			if len(parts) > 1 {
+				schemaPattern = parts[0]
+				tablePattern = parts[1]
+			}
+		}
+		data.Routes[routeKey] = RouteRule{
+			SchemaPattern: schemaPattern,
+			TablePattern:  tablePattern,
+			TargetSchema:  strings.Split(tableInfo.DestTableInfo[0], ".")[1],
+			TargetTable:   strings.Split(tableInfo.DestTableInfo[0], ".")[2],
+		}
 	}
 
 	// Parse the template
