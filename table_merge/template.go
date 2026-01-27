@@ -383,12 +383,12 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 		}{
 			Mode:        "full",
 			WorkerCount: 4,
-			ErrorDelay:  "0s",
+			ErrorDelay:  "30s",
 		},
 	}
 
 	// Build MySQL instances
-	for i, _ := range config.SourceDB {
+	for i, dbConnInfo := range config.SourceDB {
 		instance := struct {
 			SourceID   string
 			RouteRules []string
@@ -398,11 +398,30 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 
 		// Collect route rules for this instance
 		for _, tableInfo := range *tableMapping {
-			destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
-			if len(destParts) > 2 {
-				ruleName := "r_" + destParts[2]
-				instance.RouteRules = append(instance.RouteRules, ruleName)
+			if tableInfo.SrcRegex == "" {
+				destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
+				srcParts := strings.Split(tableInfo.SrcTableInfo[0], ".")
+				if len(srcParts) > 0 && srcParts[0] == dbConnInfo.Name {
+					if len(destParts) > 2 {
+						ruleName := "r_" + destParts[2]
+						instance.RouteRules = append(instance.RouteRules, ruleName)
+					}
+				}
+			} else {
+				// Loop through each source table info
+				for _, src := range tableInfo.SrcTableInfo {
+					srcParts := strings.Split(src, ".")
+					if len(srcParts) > 0 && srcParts[0] == dbConnInfo.Name {
+						destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
+						if len(destParts) > 2 {
+							ruleName := "r_" + destParts[2]
+							instance.RouteRules = append(instance.RouteRules, ruleName)
+						}
+						break // at least one matched, append and stop checking further
+					}
+				}
 			}
+
 		}
 
 		data.MySQLInstances = append(data.MySQLInstances, instance)
