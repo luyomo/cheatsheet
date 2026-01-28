@@ -219,7 +219,7 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 
 	// Read the template file
 	// Create or open the output file
-	outFile, err := os.Create("test.toml")
+	outFile, err := os.Create("sync-diff.toml")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}

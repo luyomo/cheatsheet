@@ -445,15 +445,7 @@ func main() {
 	}
 
 	mapPatterns := make(map[string]string)
-	if opsType == "generateSyncDiffconfig" {
-		var syncDiffOutput *SyncDiffOutput
-		if _, err := os.Stat("./output/summary.txt"); err == nil {
-			syncDiffOutput, err = ParseSyncDiffOutput("./output/summary.txt")
-			if err != nil {
-				fmt.Printf("Error parsing sync diff output: %v\n", err)
-				return
-			}
-		}
+	if opsType == "generateSyncDiffconfig" || opsType == "generateDMConfig" {
 		for idx := range tableStructure {
 			if len(tableStructure[idx].SrcTableInfo) > 2 {
 				// Get all source tables except the current one
@@ -485,20 +477,17 @@ func main() {
 				fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 			}
 		}
+	}
 
-		/****** DM Test ****/
-		err := RenderDMSourceConfig(&config)
-		if err != nil {
-			fmt.Printf("Error rendering DM source config: %v\n", err)
-			return
+	if opsType == "generateSyncDiffconfig" {
+		var syncDiffOutput *SyncDiffOutput
+		if _, err := os.Stat("./output/summary.txt"); err == nil {
+			syncDiffOutput, err = ParseSyncDiffOutput("./output/summary.txt")
+			if err != nil {
+				fmt.Printf("Error parsing sync diff output: %v\n", err)
+				return
+			}
 		}
-
-		err = RenderDMTaskConfig(&config, &tableStructure)
-		if err != nil {
-			fmt.Printf("Error rendering DM task config: %v\n", err)
-			return
-		}
-		/****** DM Test ****/
 
 		// Filter tableStructure to keep only those that failed in syncDiffOutput
 		if syncDiffOutput != nil && len(syncDiffOutput.InconsistentTables) > 0 {
@@ -530,6 +519,20 @@ func main() {
 				fmt.Printf("Error rendering sync diff config: %v\n", err)
 				return
 			}
+		}
+	}
+
+	if opsType == "generateDMConfig" {
+		err := RenderDMSourceConfig(&config)
+		if err != nil {
+			fmt.Printf("Error rendering DM source config: %v\n", err)
+			return
+		}
+
+		err = RenderDMTaskConfig(&config, &tableStructure)
+		if err != nil {
+			fmt.Printf("Error rendering DM task config: %v\n", err)
+			return
 		}
 	}
 
