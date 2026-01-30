@@ -10,3 +10,6 @@ release-linux: build
 	mkdir -p release/$(VERSION)
 	cp bin/$(BINARY_NAME) release/$(VERSION)/
 	tar -czf $(ARCHIVE_NAME) -C release $(VERSION)
+
+github-release: release
+	gh release create $(VERSION) $(ARCHIVE_NAME) --title "$(VERSION)" --notes "Release notes here"

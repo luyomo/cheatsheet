@@ -1,11 +1,15 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"os"
 	"strings"
 	"text/template"
 )
+
+//go:embed templates/diff.tpl.toml templates/task.tpl.toml
+var readmeFS embed.FS
 
 type SyncDiffConfig struct {
 	CheckThreadCount     int                    `yaml:"check-thread-count" json:"check_thread_count"`
@@ -225,8 +229,7 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	}
 	defer outFile.Close()
 
-	// Read the template file
-	tmplBytes, err := os.ReadFile("templates/diff.tpl.toml")
+	tmplBytes, err := readmeFS.ReadFile("templates/diff.tpl.toml")
 	if err != nil {
 		return fmt.Errorf("failed to read template file: %w", err)
 	}
@@ -357,7 +360,7 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 	}
 
 	// Read the template file
-	tmplBytes, err := os.ReadFile("templates/task.tpl.toml")
+	tmplBytes, err := readmeFS.ReadFile("templates/task.tpl.toml")
 	if err != nil {
 		return fmt.Errorf("failed to read template file: %w", err)
 	}
