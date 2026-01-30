@@ -18,7 +18,7 @@ func main() {
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(10)
+	db.SetMaxOpenConns(100)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(0)
 
@@ -27,8 +27,8 @@ func main() {
 		return
 	}
 
-	concurrency := 4
-	totalLimit := 10
+	concurrency := 80
+	totalLimit := 80
 	chunk := (totalLimit + concurrency - 1) / concurrency
 
 	resCh := make(chan string, totalLimit)
@@ -57,14 +57,15 @@ func main() {
 				pushID           int64  = 19937
 				createdAtCutoff  string = "2025-12-05 12:34:42.0"
 				showStartAt      string = "2025-12-05 00:00:00.0"
+				showStartAt02    string = "2025-12-08 00:00:00.0"
 				showEndAt        string = "2025-12-07 23:59:59.0"
 				updatedAt        string = "2025-12-05 12:49:33.678"
 				messageType      int    = 4
 				businessNo       string = "00000"
 				pushMode         string = "022"
 				messageContent   string = `{"showOnHomepage":0,"linkUrl":"type=screen0001","linkType":1,"informationCategory":1,"title":"1128消息公告","content":"test"}`
-				loopCount        int    = 10000
-				commitBatchSize  int    = 1000
+				loopCount        int    = 10000000
+				commitBatchSize  int    = 10000
 			)
 
 			// Base values; include off to avoid ID/member collisions across goroutines
@@ -79,16 +80,16 @@ func main() {
 				return
 			}
 
-			selectSQL := `
-				SELECT id
-				FROM user_message
-				WHERE show_start_at IS NOT NULL
-				  AND show_end_at IS NOT NULL
-				  AND member_id = ?
-				  AND push_id = ?
-				  AND created_at >= ?
-				LIMIT 1
-			`
+//			selectSQL := `
+//				SELECT id
+//				FROM user_message
+//				WHERE show_start_at IS NOT NULL
+//				  AND show_end_at IS NOT NULL
+//				  AND member_id = ?
+//				  AND push_id = ?
+//				  AND created_at >= ?
+//				LIMIT 1
+//			`
 
 			insertSQL := `
 				INSERT INTO user_message (
@@ -98,23 +99,37 @@ func main() {
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`
 
+// _, err = tx.Exec("SET RESOURCE GROUP rg2")
+// if err != nil {
+// 	_ = tx.Rollback()
+// 	errCh <- fmt.Errorf("failed to set resource group: %v", err)
+// 	doneCh <- struct{}{}
+// 	return
+// }
+
 			inserted := 0
 			for i := 0; i < loopCount; i++ {
 				memberID := baseMemberID + int64(i)
 				rowID := baseRowID + int64(i)
 
-				var existingID int64
-				err = tx.QueryRow(selectSQL, memberID, pushID, createdAtCutoff).Scan(&existingID)
-				if err != nil && err != sql.ErrNoRows {
-					_ = tx.Rollback()
-					errCh <- fmt.Errorf("select error (member_id=%d): %v", memberID, err)
-					doneCh <- struct{}{}
-					return
-				}
-
-				// If exists, skip insertion
-				if err == nil {
-					continue
+//				var existingID int64
+//				err = tx.QueryRow(selectSQL, memberID, pushID, createdAtCutoff).Scan(&existingID)
+//				if err != nil && err != sql.ErrNoRows {
+//					_ = tx.Rollback()
+//					errCh <- fmt.Errorf("select error (member_id=%d): %v", memberID, err)
+//					doneCh <- struct{}{}
+//					return
+//				}
+//
+//				// If exists, skip insertion
+//				if err == nil {
+//					continue
+//				}
+                                var theShowStartAt string
+                                if off < 6 {
+				    theShowStartAt = showStartAt02
+				} else {
+				    theShowStartAt = showStartAt02
 				}
 
 				// Insert when not exists
@@ -131,7 +146,7 @@ func main() {
 					0,                   // deleted
 					pushMode,            // push_mode
 					createdAtCutoff,     // created_at
-					showStartAt,         // show_start_at
+  				        theShowStartAt,         // show_start_at
 					showEndAt,           // show_end_at
 					pushID,              // push_id
 					updatedAt,           // updated_at
@@ -146,14 +161,14 @@ func main() {
 
 				inserted++
 
-				// Verify after insert
-				err = tx.QueryRow(selectSQL, memberID, pushID, createdAtCutoff).Scan(&existingID)
-				if err != nil {
-					_ = tx.Rollback()
-					errCh <- fmt.Errorf("post-insert verify failed (member_id=%d): %v", memberID, err)
-					doneCh <- struct{}{}
-					return
-				}
+			//	// Verify after insert
+			//	err = tx.QueryRow(selectSQL, memberID, pushID, createdAtCutoff).Scan(&existingID)
+			//	if err != nil {
+			//		_ = tx.Rollback()
+			//		errCh <- fmt.Errorf("post-insert verify failed (member_id=%d): %v", memberID, err)
+			//		doneCh <- struct{}{}
+			//		return
+			//	}
 
 				// Commit every 1000 rows
 				if inserted%commitBatchSize == 0 {
