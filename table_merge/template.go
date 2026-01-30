@@ -215,7 +215,7 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 		idx = idx + 1
 	}
 
-	fmt.Printf("%+v\n", syncDiffConfig)
+	// fmt.Printf("%+v\n", syncDiffConfig)
 
 	// Read the template file
 	// Create or open the output file

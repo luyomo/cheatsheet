@@ -61,10 +61,10 @@ var rootCmd = &cobra.Command{
 			os.Exit(0)
 		}
 
-		if llmProduct != "openai" && llmProduct != "deepseek" {
-			fmt.Printf("Error: LLM product must be either 'openai' or 'deepseek'\n")
-			os.Exit(1)
-		}
+		// if llmProduct != "openai" && llmProduct != "deepseek" {
+		// 	fmt.Printf("Error: LLM product must be either 'openai' or 'deepseek'\n")
+		// 	os.Exit(1)
+		// }
 	},
 }
 
@@ -263,7 +263,7 @@ func main() {
 	if opsType == "sourceAnalyze" {
 		// fmt.Printf("Starting to analyze the source table and check the table structure \n")
 		// fmt.Printf("%#v \n", tableStructure)
-		fmt.Printf("---------- Pattern 01: one-to-one pattern \n")
+		// fmt.Printf("---------- Pattern 01: one-to-one pattern \n")
 		for idx, table := range tableStructure {
 			// fmt.Printf("%#v \n", table)
 			if len(table.SrcTableInfo) == 1 && len(table.DestTableInfo) == 1 {
@@ -300,17 +300,17 @@ func main() {
 		return
 	}
 
-	for _, ti := range tableStructure {
-		fmt.Printf("MD5Columns: %s\n", ti.MD5Columns)
-		fmt.Printf("MD5ColumnsWithTypes: %s\n", ti.MD5ColumnsWithTypes)
-		fmt.Printf("SrcRegex: %s\n", ti.SrcRegex)
-		fmt.Printf("SrcTableInfo: %v\n", ti.SrcTableInfo)
-		fmt.Printf("DestTableInfo: %v\n", ti.DestTableInfo)
-		fmt.Printf("DestHasSource: %t\n", ti.DestHasSource)
-		fmt.Printf("DestHasSchema: %t\n", ti.DestHasSchema)
-		fmt.Printf("DestHasTableName: %t\n", ti.DestHasTableName)
-		fmt.Println("---")
-	}
+	// for _, ti := range tableStructure {
+	// 	fmt.Printf("MD5Columns: %s\n", ti.MD5Columns)
+	// 	fmt.Printf("MD5ColumnsWithTypes: %s\n", ti.MD5ColumnsWithTypes)
+	// 	fmt.Printf("SrcRegex: %s\n", ti.SrcRegex)
+	// 	fmt.Printf("SrcTableInfo: %v\n", ti.SrcTableInfo)
+	// 	fmt.Printf("DestTableInfo: %v\n", ti.DestTableInfo)
+	// 	fmt.Printf("DestHasSource: %t\n", ti.DestHasSource)
+	// 	fmt.Printf("DestHasSchema: %t\n", ti.DestHasSchema)
+	// 	fmt.Printf("DestHasTableName: %t\n", ti.DestHasTableName)
+	// 	fmt.Println("---")
+	// }
 
 	if opsType == "generateDumpling" {
 
@@ -350,17 +350,17 @@ func main() {
 				if err := tmpl.Execute(&buf, data); err != nil {
 					log.Printf("Error executing template: %v", err)
 				}
-				fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
+				// fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
 			}
 
 			// Case 2: Many-to-many mapping with same table names and count
 			if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) > 1 &&
 				len(tableInfo.SrcTableInfo) == len(tableInfo.DestTableInfo) {
 				// fmt.Printf("Using table map for multiple tables with same structure\n")
-				fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n")
-				fmt.Fprintf(errorWriter, "| source:      | %s \n", strings.Join(tableInfo.SrcTableInfo, " , "))
-				fmt.Fprintf(errorWriter, "| destination: | %s \n", strings.Join(tableInfo.DestTableInfo, " , "))
-				fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n\n")
+				// fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n")
+				// fmt.Fprintf(errorWriter, "| source:      | %s \n", strings.Join(tableInfo.SrcTableInfo, " , "))
+				// fmt.Fprintf(errorWriter, "| destination: | %s \n", strings.Join(tableInfo.DestTableInfo, " , "))
+				// fmt.Fprintf(errorWriter, "---------- ---------- ---------- ---------- --------------- ---------- ---------- ---------- ----------\n\n")
 
 				// Match tables by comparing table names after the schema
 				for i := 0; i < len(tableInfo.SrcTableInfo); i++ {
@@ -405,7 +405,7 @@ func main() {
 
 			// Case 3: Many-to-one consolidation
 			if len(tableInfo.SrcTableInfo) > 1 && len(tableInfo.DestTableInfo) == 1 {
-				fmt.Printf("----------------------- \n")
+				// fmt.Printf("----------------------- \n")
 				destTable := tableInfo.DestTableInfo[0]
 				destParts := strings.Split(destTable, ".")
 				for idx, srcTable := range tableInfo.SrcTableInfo {
@@ -469,14 +469,14 @@ func main() {
 			}
 		}
 
-		for _, tableInfo := range tableStructure {
+		// for _, tableInfo := range tableStructure {
 
-			if tableInfo.SrcRegex != "" {
-				fmt.Printf("Using regex for multiple tables: %s -> %s  \n", tableInfo.SrcRegex, tableInfo.DestTableInfo)
-			} else {
-				fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
-			}
-		}
+		// 	if tableInfo.SrcRegex != "" {
+		// 		fmt.Printf("Using regex for multiple tables: %s -> %s  \n", tableInfo.SrcRegex, tableInfo.DestTableInfo)
+		// 	} else {
+		// 		fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
+		// 	}
+		// }
 	}
 
 	if opsType == "generateSyncDiffconfig" {
@@ -574,6 +574,10 @@ type RuleResult struct {
 
 func generateGeneralRegex(dataList []string, dataListShouldNotMatch []string) (*string, error) {
 	var client *openai.Client
+	if llmProduct == "" {
+		return &[]string{"---------- todo ----------"}[0], nil
+	}
+
 	if llmProduct == "deepseek" {
 		config := openai.DefaultConfig(os.Getenv("DEEPSEEK_API_KEY"))
 		config.BaseURL = "https://api.deepseek.com/v1"
@@ -804,17 +808,17 @@ func generateRegex(tables []string, tablesShouldNotMatch []string, mapPatterns m
 		}
 	}
 
-	if dbRegex != nil {
-		fmt.Printf("Generate db regex: %s \n", *dbRegex)
-	} else {
-		fmt.Printf("db regex is nil \n")
-	}
+	// if dbRegex != nil {
+	// 	fmt.Printf("Generate db regex: %s \n", *dbRegex)
+	// } else {
+	// 	fmt.Printf("db regex is nil \n")
+	// }
 
-	if tableRegex != nil {
-		fmt.Printf("table regex: %s \n", *tableRegex)
-	} else {
-		fmt.Printf("table regex is nil \n")
-	}
+	// if tableRegex != nil {
+	// 	fmt.Printf("table regex: %s \n", *tableRegex)
+	// } else {
+	// 	fmt.Printf("table regex is nil \n")
+	// }
 
 	if dbRegex == nil || tableRegex == nil {
 		emptyStr := ""

@@ -38,8 +38,8 @@ If the migration requires Pattern 3 logic (Primary Key conflict resolution), the
 
 ```bash
 ./bin/md-toolkit --config config/config.yaml --ops-type generateDMConfig --llm deepseek
-
 ```
+If the command does not include --llm deepseek, it will skip the regret generation. Use the ---------- todo --------- in the output. After the config file is generated, you need to replace it manually.
 
 ### Pattern Mapping
 

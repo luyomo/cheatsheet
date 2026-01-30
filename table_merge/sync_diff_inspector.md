@@ -23,6 +23,7 @@ To handle online migrations where data is continuously flowing via DM:
 ```
 ./bin/md-toolkit --config config/config.yaml --ops-type generateSyncDiffconfig --llm deepseek
 ```
+If the command does not include --llm deepseek, it will skip the regret generation. Use the ---------- todo --------- in the output. After the config file is generated, you need to replace it manually.
 ### Usage Example
 - Input Configuration (config/config.yaml)
 The tool uses the same centralized configuration as the Dumpling module to maintain a "Single Source of Truth."
