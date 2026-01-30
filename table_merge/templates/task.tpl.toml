@@ -1,0 +1,64 @@
+name: {{.Name}}
+task-mode: {{.TaskMode}}
+is-sharding: {{.IsSharding}}
+meta-schema: "{{.MetaSchema}}"
+
+target-database:
+  host: "{{.TargetDB.Host}}"
+  port: {{.TargetDB.Port}}
+  user: "{{.TargetDB.User}}"
+  password: "{{.TargetDB.Password}}"
+
+mysql-instances:
+{{- range .MySQLInstances}}
+  - source-id: "{{.SourceID}}"
+    block-allow-list: "{{.InstanceName}}"
+    route-rules: [{{range $i, $rule := .RouteRules}}{{if $i}}, {{end}}"{{$rule}}"{{end}}]
+    mydumper-config-name: "global"
+    loader-config-name: "global"
+    syncer-config-name: "global"
+    validator-config-name: "global"
+{{- end}}
+
+block-allow-list:
+{{- range $instance, $dbs := .AllowList}}
+  {{ $instance }}:
+    do-dbs: [{{ range $i, $db := $dbs }}{{ if $i }}, {{ end }}"{{ $db }}"{{ end }}]
+{{- end}}
+
+{{- if .Routes}}
+routes:
+{{- range $ruleName, $rule := .Routes}}
+  {{$ruleName}}:
+    schema-pattern: "{{$rule.SchemaPattern}}"
+    table-pattern: "{{$rule.TablePattern}}"
+{{- if $rule.TargetSchema}}
+    target-schema: "{{$rule.TargetSchema}}"
+{{- end}}
+{{- if $rule.TargetTable}}
+    target-table: "{{$rule.TargetTable}}"
+{{- end}}
+{{- end}}
+{{- end}}
+
+validators:
+  global:
+    mode: {{.Validators.Mode}}
+    worker-count: {{.Validators.WorkerCount}}
+    row-error-delay: {{.Validators.ErrorDelay}}
+
+mydumpers:
+  global:
+    threads: 4
+    chunk-filesize: 64
+    skip-tz-utc: true
+
+loaders:
+  global:
+    pool-size: 16
+    dir: "./dumped_data"
+
+syncers:
+  global:
+    worker-count: 16
+    batch: 100
