@@ -1,0 +1,63 @@
+k Name and Mode
+name = "{{.TaskName}}"
+task-mode = "{{.TaskMode}}" # full, incremental, or all
+shard-mode = "pessimistic" # or "optimistic" depending on your DDL handling preference
+meta-schema = "dm_meta"
+
+# Target TiDB configuration
+[target-database]
+    host = "{{.Target.Host}}"
+    port = {{.Target.Port}}
+    user = "{{.Target.User}}"
+    password = "{{.Target.Password}}"
+
+# Source Instances
+{{- range $index, $inst := .SourceInstances}}
+[[source-config]]
+    source-id = "{{$inst.SourceID}}"
+    {{- if $inst.RouteRules}}
+    route-rules = [{{range $i, $rule := $inst.RouteRules}}{{if $i}}, {{end}}"{{$rule}}"{{end}}]
+    {{- end}}
+    {{- if $inst.FilterRules}}
+    filter-rules = [{{range $i, $rule := $inst.FilterRules}}{{if $i}}, {{end}}"{{$rule}}"{{end}}]
+    {{- end}}
+{{- end}}
+
+# Table Routing Rules (Crucial for Consolidation)
+# This merges multiple source schemas/tables into a single target
+{{- if .Routes}}
+{{- range $key, $route := .Routes}}
+[routes.{{$key}}]
+schema-pattern = "{{$route.SchemaPattern}}"
+table-pattern = "{{$route.TablePattern}}"
+target-schema = "{{$route.TargetSchema}}"
+target-table = "{{$route.TargetTable}}"
+{{- end}}
+{{- end}}
+
+# Event Filter Rules (Optional)
+{{- if .Filters}}
+{{- range $key, $filter := .Filters}}
+[filters.{{$key}}]
+schema-pattern = "{{$filter.SchemaPattern}}"
+{{- if $filter.TablePattern}}
+table-pattern = "{{$filter.TablePattern}}"
+{{- end}}
+events = [{{range $i, $event := $filter.Events}}{{if $i}}, {{end}}"{{$event}}"{{end}}]
+action = "{{$filter.Action}}"
+{{- end}}
+{{- end}}
+
+# Mydumper (Full Export) configuration
+[mydumpers.global]
+threads = {{.MydumperThreads}}
+chunk-filesize = "64"
+
+# Loader (Full Import) configuration
+[loaders.global]
+pool-size = {{.LoaderPoolSize}}
+
+# Syncer (Incremental) configuration
+[syncers.global]
+worker-count = {{.SyncerWorkerCount}}
+batch = 100
