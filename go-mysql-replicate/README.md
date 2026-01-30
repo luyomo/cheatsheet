@@ -38,4 +38,10 @@ go tool pprof /home/.../dm-worker /mnt/repli/dm_oom.pb
 select max(id) from target_tmp where id <  13465612;
 select count(*) from target_tmp where id between  13465612 and 23531018;
 
+select count(*) from web_send_record_tmp where id < 23531018;
+select count(*) from web_send_record_tmp where id between 23531018 and 43531018;
+select count(*) from web_send_record_tmp where id > 43531018;
+
 ```
+
+tiup dm patch dmlocalhost /tmp/dm-worker-v8.5.0-hotfix-linux-amd64.tar.gz -R dm-worker --overwrite
