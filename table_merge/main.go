@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -1044,7 +1043,7 @@ type Config struct {
 	SourceDB []DBConnInfo `yaml:"SourceDB"`
 	DestDB   DBConnInfo   `yaml:"DestDB"`
 	Template string       `yaml:"Template"`
-	Output   string       `yaml:"output"`
+	Output   string       `yaml:"Output"`
 	ErrorLog string       `yaml:"error_log"`
 }
 
@@ -1052,7 +1051,7 @@ func readConfig(fileName string) (Config, error) {
 	var config Config
 
 	// Read the YAML file
-	yamlFile, err := ioutil.ReadFile(fileName)
+	yamlFile, err := os.ReadFile(fileName)
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}

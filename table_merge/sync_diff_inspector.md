@@ -20,9 +20,22 @@ To handle online migrations where data is continuously flowing via DM:
 - Convergence Logic: Once all tables pass the diff, the tool triggers a final verification to guarantee absolute consistency before cutover.
 ## Specifications
 ### Command
+- Linux Command
 ```
-./bin/md-toolkit --config config/config.yaml --ops-type generateSyncDiffconfig --llm deepseek
+./bin/md-toolkit --config config/config.yaml --output=./config --ops-type generateSyncDiffconfig --llm deepseek
 ```
+
+- Docker Command
+```
+docker run --rm --network host \
+  -v $(pwd)/config:/app/config \
+  emaxchou/dm-toolkit:v0.0.2 \
+  --output config \
+  --config config/config.yaml \
+  --ops-type generateSyncDiffconfig \
+  --llm deepseek
+```
+
 If the command does not include --llm deepseek, it will skip the regret generation. Use the ---------- todo --------- in the output. After the config file is generated, you need to replace it manually.
 ### Usage Example
 - Input Configuration (config/config.yaml)

@@ -51,6 +51,6 @@ dumpling -h ${DBHOST} -P ${DBPORT} -u ${DBUSER} -p "${DBPASSWORD}" --threads 8 -
 ```
 Export data to local:
 ```
-./bin/md-toolkit --src-host $SrcDBHost --src-port $SrcDBPort --src-user $SrcDBUser --src-password $SrcDBPassword --src-dbs messagedb_00,messagedb_01 --dest-host $DestDBHost --dest-port $DestDBPort --dest-user $DestDBUser --dest-password $DestDBPassword --dest-dbs messagedb --ops-type generateDumpling --template "dumpling -h \${DBHOST} -P \${DBPORT} -u \${DBUSER} -p \"\${DBPASSWORD}\" --threads 8 --tables-list '{{.SrcTable}}' --output-filename-template '{{.DestTable}}' --filetype csv -o \"\${DUMPLING_OUTPUT}\""
+./bin/dm-toolkit --src-host $SrcDBHost --src-port $SrcDBPort --src-user $SrcDBUser --src-password $SrcDBPassword --src-dbs messagedb_00,messagedb_01 --dest-host $DestDBHost --dest-port $DestDBPort --dest-user $DestDBUser --dest-password $DestDBPassword --dest-dbs messagedb --ops-type generateDumpling --template "dumpling -h \${DBHOST} -P \${DBPORT} -u \${DBUSER} -p \"\${DBPASSWORD}\" --threads 8 --tables-list '{{.SrcTable}}' --output-filename-template '{{.DestTable}}' --filetype csv -o \"\${DUMPLING_OUTPUT}\""
 ```
 

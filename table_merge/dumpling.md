@@ -95,9 +95,20 @@ Template: "dumpling -h ${DBHOST} -P ${DBPORT} -u ${DBUSER} -p \"${DBPASSWORD}\" 
 
 Run the toolkit to generate the required Dumpling scripts:
 
+  - Linux Command
 ```bash
-./bin/md-toolkit --config config/config.yaml --ops-type generateDumpling --llm deepseek
+./bin/dm-toolkit --config config/config.yaml --ops-type generateDumpling --llm deepseek
 
+```
+
+  - Docker Command
+```
+docker run --rm --network host \
+  -v $(pwd)/config:/app/config \
+  emaxchou/dm-toolkit:v0.0.2 \
+  --config config/config.yaml \
+  --ops-type generateDumpling \
+  --llm deepseek
 ```
 
 ### 3. Output Example (Pattern 3)

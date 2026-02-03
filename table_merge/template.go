@@ -223,7 +223,11 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 
 	// Read the template file
 	// Create or open the output file
-	outFile, err := os.Create("sync-diff.toml")
+	outputPath := config.Output
+	if !strings.HasSuffix(outputPath, "/") {
+		outputPath += "/"
+	}
+	outFile, err := os.Create(outputPath + "sync-diff.toml")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
@@ -313,7 +317,11 @@ checker:
 		}
 
 		// Create output file
-		outFileName := fmt.Sprintf("dm-source-%s.yaml", db.Name)
+		outputPath := config.Output
+		if !strings.HasSuffix(outputPath, "/") {
+			outputPath += "/"
+		}
+		outFileName := fmt.Sprintf("%sdm-source-%s.yaml", outputPath, db.Name)
 		outFile, err := os.Create(outFileName)
 		if err != nil {
 			return fmt.Errorf("failed to create output file %s: %w", outFileName, err)
@@ -495,7 +503,11 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 	}
 
 	// Create output file
-	outFile, err := os.Create("dm-task.yaml")
+	outputPath := config.Output
+	if !strings.HasSuffix(outputPath, "/") {
+		outputPath += "/"
+	}
+	outFile, err := os.Create(outputPath + "dm-task.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
