@@ -81,10 +81,18 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 		var routeRules []string
 		for _, tableInfo := range *tableMapping {
 			// Extract instance name from SrcTableInfo
+			if len(tableInfo.DestTableInfo) == 0 {
+				fmt.Printf("warning: tableInfo.DestTableInfo is empty for SrcTableInfo: %v\n", tableInfo.SrcTableInfo)
+				continue
+			}
 			destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
 			var ruleName string
 			if len(destParts) > 2 {
 				ruleName = "r_" + destParts[2]
+			} else {
+				fmt.Printf("warning: dest table info %q has insufficient parts (<3) for SrcTableInfo: %v\n",
+					tableInfo.DestTableInfo[0], tableInfo.SrcTableInfo)
+				continue
 			}
 			for _, src := range tableInfo.SrcTableInfo {
 				parts := strings.Split(src, ".")
@@ -121,9 +129,24 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	// Map tableMapping to syncDiffConfig's Routes. If SrcRegex is not empty, use it as the TablePattern.
 	for _, tableInfo := range *tableMapping {
 		// routeKey := fmt.Sprintf("%s:%s", tableInfo.SrcTableInfo[0], tableInfo.DestTableInfo[0])
+		if len(tableInfo.DestTableInfo) == 0 {
+			fmt.Printf("warning: tableInfo.DestTableInfo is empty for SrcTableInfo: %v\n", tableInfo.SrcTableInfo)
+			continue
+		}
+
 		var schemaPattern, tablePattern string
-		routeKey := "r_" + strings.Split(tableInfo.DestTableInfo[0], ".")[2]
+		destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
+		if len(destParts) < 3 {
+			fmt.Printf("warning: dest table info %q has insufficient parts (<3) for SrcTableInfo: %v\n",
+				tableInfo.DestTableInfo[0], tableInfo.SrcTableInfo)
+			continue
+		}
+		routeKey := "r_" + destParts[2]
 		if tableInfo.SrcRegex == "" {
+			if len(tableInfo.SrcTableInfo) == 0 {
+				fmt.Printf("warning: tableInfo.SrcTableInfo is empty for SrcTableInfo: %v\n", tableInfo.DestTableInfo)
+				continue
+			}
 			parts := strings.Split(tableInfo.SrcTableInfo[0], ".")
 			if len(parts) > 2 {
 				schemaPattern = parts[1]
@@ -134,6 +157,9 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 			if len(parts) > 1 {
 				schemaPattern = parts[0]
 				tablePattern = parts[1]
+			} else {
+				fmt.Printf("warning: tableInfo.SrcRegex is invalid for SrcTableInfo: %v\n", tableInfo.SrcRegex)
+				continue
 			}
 		}
 		syncDiffConfig.Routes[routeKey] = RouteRule{
@@ -177,9 +203,15 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	// depending on tableMapping element's DestHasSource / DestHasSchema / DestHasTableName flags.
 	// The value is the list of columns to exclude from the check.
 	for _, tbl := range *tableMapping {
+		if len(tbl.DestTableInfo) == 0 {
+			fmt.Printf("warning: tbl.DestTableInfo is empty for SrcTableInfo: %v\n", tbl.SrcTableInfo)
+			continue
+		}
 		var key string
 		destParts := strings.Split(tbl.DestTableInfo[0], ".")
 		if len(destParts) < 3 {
+			fmt.Printf("warning: dest table info %q has insufficient parts (<3) for SrcTableInfo: %v\n",
+				tbl.DestTableInfo[0], tbl.SrcTableInfo)
 			continue
 		}
 		schema := destParts[1]
@@ -420,12 +452,20 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 		for _, tableInfo := range *tableMapping {
 			// 01. Prepare the route name from the regrex and dest table name
 			if tableInfo.SrcRegex == "" {
+				if len(tableInfo.DestTableInfo) == 0 || len(tableInfo.SrcTableInfo) == 0 {
+					fmt.Printf("warning: tableInfo.DestTableInfo or SrcTableInfo is empty for SrcTableInfo: %v\n", tableInfo.SrcTableInfo)
+					continue
+				}
 				destParts := strings.Split(tableInfo.DestTableInfo[0], ".")
 				srcParts := strings.Split(tableInfo.SrcTableInfo[0], ".")
 				if len(srcParts) > 0 && srcParts[0] == dbConnInfo.Name {
 					if len(destParts) > 2 {
 						ruleName := "r_" + destParts[2]
 						instance.RouteRules = append(instance.RouteRules, ruleName)
+					} else {
+						fmt.Printf("warning: dest table info %q has insufficient parts (<3) for SrcTableInfo: %v\n",
+							tableInfo.DestTableInfo[0], tableInfo.SrcTableInfo)
+						continue
 					}
 				}
 			} else {
@@ -474,14 +514,26 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 	for _, tableInfo := range *tableMapping {
 		// routeKey := fmt.Sprintf("%s:%s", tableInfo.SrcTableInfo[0], tableInfo.DestTableInfo[0])
 		var schemaPattern, tablePattern string
+		if len(tableInfo.DestTableInfo) == 0 {
+			fmt.Printf("warning: tableInfo.DestTableInfo is empty for SrcTableInfo: %v\n", tableInfo.SrcTableInfo)
+			continue
+		}
 		routeKey := "r_" + strings.Split(tableInfo.DestTableInfo[0], ".")[2]
 		if tableInfo.SrcRegex == "" {
+			if len(tableInfo.SrcTableInfo) == 0 {
+				fmt.Printf("warning: tableInfo.SrcTableInfo is empty for SrcTableInfo: %v\n", tableInfo.DestTableInfo)
+				continue
+			}
 			parts := strings.Split(tableInfo.SrcTableInfo[0], ".")
 			if len(parts) > 2 {
 				schemaPattern = parts[1]
 				tablePattern = parts[2]
 			}
 		} else {
+			if len(tableInfo.SrcRegex) == 0 {
+				fmt.Printf("warning: tableInfo.SrcRegex is invalid for SrcTableInfo: %v\n", tableInfo.SrcRegex)
+				continue
+			}
 			parts := strings.Split(tableInfo.SrcRegex, ".")
 			if len(parts) > 1 {
 				schemaPattern = parts[0]
