@@ -38,6 +38,7 @@ type TableInfo struct {
 	DestHasSource       bool
 	DestHasSchema       bool
 	DestHasTableName    bool
+	MaxID               int64
 }
 
 var (
@@ -52,7 +53,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "md-toolkit",
+	Use:   "dm-toolkit",
 	Short: "Toolkit to help DM",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Exit if help flag is provided
@@ -130,11 +131,7 @@ func main() {
 			return
 		}
 	}
-	// err := fetch_table_def("source", &tableStructure, srcDBInfo, strings.Split(srcDBInfo.DBName, ","))
-	// if err != nil {
-	// 	fmt.Printf("Failed to fetch table definition: %v \n", err)
-	// 	return
-	// }
+
 	/*
 			Similarly, fetch destination database table definitions and create a mapping where:
 		    - Key: MD5 hash of consolidated column definitions
@@ -145,7 +142,6 @@ func main() {
 		fmt.Printf("Failed to fetch table definition: %v \n", err)
 		return
 	}
-	// }
 
 	// fmt.Printf("template: %s \n", config.Template)
 	tmpl := template.Must(template.New("dumpling").Parse(config.Template))
@@ -299,18 +295,6 @@ func main() {
 		return
 	}
 
-	// for _, ti := range tableStructure {
-	// 	fmt.Printf("MD5Columns: %s\n", ti.MD5Columns)
-	// 	fmt.Printf("MD5ColumnsWithTypes: %s\n", ti.MD5ColumnsWithTypes)
-	// 	fmt.Printf("SrcRegex: %s\n", ti.SrcRegex)
-	// 	fmt.Printf("SrcTableInfo: %v\n", ti.SrcTableInfo)
-	// 	fmt.Printf("DestTableInfo: %v\n", ti.DestTableInfo)
-	// 	fmt.Printf("DestHasSource: %t\n", ti.DestHasSource)
-	// 	fmt.Printf("DestHasSchema: %t\n", ti.DestHasSchema)
-	// 	fmt.Printf("DestHasTableName: %t\n", ti.DestHasTableName)
-	// 	fmt.Println("---")
-	// }
-
 	if opsType == "generateDumpling" {
 
 		// fmt.Printf("--------- Start to prepare dumpling command ----- ---- \n")
@@ -443,6 +427,7 @@ func main() {
 		}
 	}
 
+	// Generate the regex for table consolidations
 	mapPatterns := make(map[string]string)
 	if opsType == "generateSyncDiffconfig" || opsType == "generateDMConfig" {
 		for idx := range tableStructure {
@@ -476,6 +461,13 @@ func main() {
 		// 		fmt.Printf("Mapping Rule: %s -> %s \n", tableInfo.SrcTableInfo, tableInfo.DestTableInfo)
 		// 	}
 		// }
+	}
+
+	// Fetch the max id from the target table.
+	err = SetMaxID4IncreDiff(config, tableStructure)
+	if err != nil {
+		fmt.Printf("Error setting max ID: %v\n", err)
+		return
 	}
 
 	if opsType == "generateSyncDiffconfig" {
@@ -535,34 +527,34 @@ func main() {
 		}
 	}
 
-	if opsType == "generateMapping" {
-		for idx := range tableStructure {
-			if len(tableStructure[idx].SrcTableInfo) > 2 {
-				allSourceTables := make([]string, 0)
-				for i := range tableStructure {
-					if i != idx {
-						allSourceTables = append(allSourceTables, tableStructure[i].SrcTableInfo...)
-					}
-				}
+	// if opsType == "generateMapping" {
+	// 	for idx := range tableStructure {
+	// 		if len(tableStructure[idx].SrcTableInfo) > 2 {
+	// 			allSourceTables := make([]string, 0)
+	// 			for i := range tableStructure {
+	// 				if i != idx {
+	// 					allSourceTables = append(allSourceTables, tableStructure[i].SrcTableInfo...)
+	// 				}
+	// 			}
 
-				regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables, mapPatterns)
-				if err != nil {
-					fmt.Printf("------ Error generating regex: %v\n", err)
-				}
-				if regex != nil {
-					tableStructure[idx].SrcRegex = *regex
-				} else {
-					fmt.Printf("Failed to detect the regex")
-				}
-			}
-		}
+	// 			regex, err := generateRegex(tableStructure[idx].SrcTableInfo, allSourceTables, mapPatterns)
+	// 			if err != nil {
+	// 				fmt.Printf("------ Error generating regex: %v\n", err)
+	// 			}
+	// 			if regex != nil {
+	// 				tableStructure[idx].SrcRegex = *regex
+	// 			} else {
+	// 				fmt.Printf("Failed to detect the regex")
+	// 			}
+	// 		}
+	// 	}
 
-		for _, tableInfo := range tableStructure {
-			if tableInfo.SrcRegex != "" {
-				fmt.Printf("Using regex for multiple tables: %s \n", tableInfo.SrcRegex)
-			}
-		}
-	}
+	// 	for _, tableInfo := range tableStructure {
+	// 		if tableInfo.SrcRegex != "" {
+	// 			fmt.Printf("Using regex for multiple tables: %s \n", tableInfo.SrcRegex)
+	// 		}
+	// 	}
+	// }
 
 	return
 }
@@ -1040,11 +1032,12 @@ func fetch_table_def(tableType string, tableStructure *[]TableInfo, dbInfo DBCon
 }
 
 type Config struct {
-	SourceDB []DBConnInfo `yaml:"SourceDB"`
-	DestDB   DBConnInfo   `yaml:"DestDB"`
-	Template string       `yaml:"Template"`
-	Output   string       `yaml:"Output"`
-	ErrorLog string       `yaml:"error_log"`
+	SourceDB              []DBConnInfo `yaml:"SourceDB"`
+	DestDB                DBConnInfo   `yaml:"DestDB"`
+	Template              string       `yaml:"Template"`
+	Output                string       `yaml:"Output"`
+	ErrorLog              string       `yaml:"error_log"`
+	IncrementalDiffTables []string     `yaml:"IncrementalDiffTables"`
 }
 
 func readConfig(fileName string) (Config, error) {
@@ -1162,4 +1155,84 @@ func fetchDumpingSourceData(srcInstance, srcSchema, srcTable string, hasSourceCo
 		selectCols = append(selectCols, fmt.Sprintf("'%s' as c_table", srcTable))
 	}
 	return fmt.Sprintf("-S \"SELECT *, %s FROM %s.%s\"", strings.Join(selectCols, ", "), srcSchema, srcTable)
+}
+
+func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
+	fmt.Printf("IncrementalDiffTables: %v\n", config.IncrementalDiffTables)
+
+	// Loop through tableStructure and print items whose target table is in IncrementalDiffTables
+	for i := range tableStructure {
+		tableInfo := &tableStructure[i]
+		for _, destTable := range tableInfo.DestTableInfo {
+			// Extract SchemaName.TableName from destTable (targetName.SchemaName.TableName)
+			destParts := strings.Split(destTable, ".")
+			if len(destParts) != 3 {
+				continue
+			}
+			destSchemaTable := fmt.Sprintf("%s.%s", destParts[1], destParts[2])
+
+			for _, incTable := range config.IncrementalDiffTables {
+
+				if destSchemaTable == incTable {
+					for _, srcTable := range tableInfo.SrcTableInfo {
+						parts := strings.Split(srcTable, ".")
+						if len(parts) == 3 {
+							instance := parts[0]
+							schemaTable := fmt.Sprintf("%s.%s", parts[1], parts[2])
+							// fmt.Printf("Split result: %s %s\n", instance, schemaTable)
+							// Find the DB config for this instance
+							var dbConfig *DBConnInfo
+							for _, srcDB := range config.SourceDB {
+								if srcDB.Name == instance {
+									dbConfig = &srcDB
+									break
+								}
+							}
+							if dbConfig != nil {
+								// fmt.Printf("Found DB config for instance %s: %+v\n", instance, *dbConfig)
+
+								// Prepare DSN and open DB connection
+								dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbConfig.User, dbConfig.Password, dbConfig.Host, dbConfig.Port, dbConfig.DBs[0])
+								db, err := sql.Open("mysql", dsn)
+								if err != nil {
+									fmt.Printf("Failed to open DB connection for instance %s: %v\n", instance, err)
+									continue
+								}
+								defer db.Close()
+
+								if err := db.Ping(); err != nil {
+									fmt.Printf("Failed to ping DB for instance %s: %v\n", instance, err)
+									continue
+								}
+
+								// Run the query: select max(id) from schemaTable
+								var maxID sql.NullInt64
+								query := fmt.Sprintf("SELECT MAX(id) FROM %s", schemaTable)
+								err = db.QueryRow(query).Scan(&maxID)
+								if err != nil {
+									fmt.Printf("Failed to get max id from %s: %v\n", schemaTable, err)
+									continue
+								}
+								if maxID.Valid {
+									fmt.Printf("Max id for %s: %d\n", schemaTable, maxID.Int64)
+									if tableInfo.MaxID < maxID.Int64 {
+										tableInfo.MaxID = maxID.Int64
+									}
+								} /*else {
+									fmt.Printf("No rows in %s\n", schemaTable)
+								}*/
+
+								// fmt.Printf("Successfully connected to instance %s\n", instance)
+							} else {
+								fmt.Printf("No DB config found for instance %s\n", instance)
+							}
+						}
+					}
+
+					break
+				}
+			}
+		}
+	}
+	return nil
 }
