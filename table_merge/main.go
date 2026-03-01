@@ -6,9 +6,11 @@ import (
 	"crypto/md5"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -469,6 +471,15 @@ func main() {
 		fmt.Printf("Error setting max ID: %v\n", err)
 		return
 	}
+
+	// fmt.Printf("tableStructure:\n")
+	// for i, ti := range tableStructure {
+	// 	fmt.Printf("  [%d] MD5Columns:%s MD5ColumnsWithTypes:%s SrcRegex:%s\n", i, ti.MD5Columns, ti.MD5ColumnsWithTypes, ti.SrcRegex)
+	// 	// fmt.Printf("      SrcTableInfo:%v\n", ti.SrcTableInfo)
+	// 	// fmt.Printf("      DestTableInfo:%v\n", ti.DestTableInfo)
+	// 	fmt.Printf("      DestHasSource:%v DestHasSchema:%v DestHasTableName:%v MaxID:%d\n",
+	// 		ti.DestHasSource, ti.DestHasSchema, ti.DestHasTableName, ti.MaxID)
+	// }
 
 	if opsType == "generateSyncDiffconfig" {
 		var syncDiffOutput *SyncDiffOutput
@@ -1160,6 +1171,59 @@ func fetchDumpingSourceData(srcInstance, srcSchema, srcTable string, hasSourceCo
 func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
 	fmt.Printf("IncrementalDiffTables: %v\n", config.IncrementalDiffTables)
 
+	outputFile := fmt.Sprintf("%s/sync-diff-id.txt", config.Output)
+	if _, err := os.Stat(outputFile); err == nil {
+		// File exists, read it
+		fmt.Printf("Read max id from file %s\n", outputFile)
+		content, err := os.ReadFile(outputFile)
+		if err != nil {
+			fmt.Printf("Failed to read file %s: %v\n", outputFile, err)
+			return fmt.Errorf("failed to read file %s: %w", outputFile, err)
+		}
+		fmt.Printf("File content: %s\n", content)
+		// Parse each line in the content (format: schema.table:maxID)
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.Split(line, ":")
+			if len(parts) != 2 {
+				continue
+			}
+			schemaTable := parts[0]
+			maxID, err := strconv.ParseInt(parts[1], 10, 64)
+			if err != nil {
+				fmt.Printf("Failed to parse maxID for %s: %v\n", schemaTable, err)
+				continue
+			}
+
+			// Find the matching table in tableStructure and set MaxID
+			for i := range tableStructure {
+				for _, destTable := range tableStructure[i].DestTableInfo {
+					// Extract schema.table from destTable (instance.schema.table)
+					destParts := strings.Split(destTable, ".")
+					if len(destParts) == 3 {
+						destSchemaTable := fmt.Sprintf("%s.%s", destParts[1], destParts[2])
+						if destSchemaTable == schemaTable {
+							tableStructure[i].MaxID = maxID
+							break
+						}
+					}
+				}
+			}
+		}
+		return nil
+	} else if errors.Is(err, os.ErrNotExist) {
+		// File does not exist, create it
+	} else {
+		// Some other error
+		fmt.Printf("Error checking file %s: %v\n", outputFile, err)
+		return fmt.Errorf("error checking file %s: %w", outputFile, err)
+	}
+	mapMaxIDs := make(map[string]int64)
+
 	// Loop through tableStructure and print items whose target table is in IncrementalDiffTables
 	for i := range tableStructure {
 		tableInfo := &tableStructure[i]
@@ -1214,9 +1278,10 @@ func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
 									continue
 								}
 								if maxID.Valid {
-									fmt.Printf("Max id for %s: %d\n", schemaTable, maxID.Int64)
+									fmt.Printf("Max id for %s: %d\n", destSchemaTable, maxID.Int64)
 									if tableInfo.MaxID < maxID.Int64 {
 										tableInfo.MaxID = maxID.Int64
+										mapMaxIDs[destSchemaTable] = maxID.Int64
 									}
 								} /*else {
 									fmt.Printf("No rows in %s\n", schemaTable)
@@ -1232,6 +1297,20 @@ func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
 					break
 				}
 			}
+		}
+	}
+
+	// Write the mapMaxIDs to the output file
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", outputFile, err)
+	}
+	defer file.Close()
+
+	for table, maxID := range mapMaxIDs {
+		_, err := fmt.Fprintf(file, "%s:%d\n", table, maxID)
+		if err != nil {
+			return fmt.Errorf("failed to write to file %s: %w", outputFile, err)
 		}
 	}
 	return nil
