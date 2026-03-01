@@ -13,6 +13,7 @@ The tool uses DeepSeek LLM to analyze source and target schemas to automatically
 ### Automatic Rule Generation
 - DDL Match: The tool performs a DDL comparison between source and target. It automatically generates the [[source-database.instance.route-rules]] for one-to-one and multiple-to-one mappings.
 - Conflict Resolution Handling: If the migration pattern introduced metadata columns (e.g., c_source, c_schema, c_table) to resolve PK conflicts, the tool automatically adds these to the ignore-columns list to prevent false-positive mismatches.
+- Range specification: If IncrementalDiffTables is specified, the maximum ID from all source databases will be checked for data range comparison.
 ### Iterative "State-Aware" Comparison
 To handle online migrations where data is continuously flowing via DM:
 - Incremental Diffing: The tool reads the output (checkpoints) of previous sync-diff-inspector runs.
@@ -29,7 +30,7 @@ To handle online migrations where data is continuously flowing via DM:
 ```
 docker run --rm --network host \
   -v $(pwd)/config:/app/config \
-  emaxchou/dm-toolkit:v0.0.2 \
+  emaxchou/dm-toolkit:v0.0.4 \
   --output config \
   --config config/config.yaml \
   --ops-type generateSyncDiffconfig \
@@ -47,13 +48,13 @@ SourceDB:
     Port: 3306
     User: dmuser
     Password: 1234Abcd
-    DBs: [messagedb_00, messagedb_01, ..., messagedb_07]
+    DBs: [testdb_00, testdb_01, ..., testdb_07]
   - Name: instance02
     Host: 10.0.1.6
     Port: 3306
     User: dmuser
     Password: 1234Abcd
-    DBs: [messagedb_08, messagedb_09, ..., messagedb_15]
+    DBs: [testdb_08, testdb_09, ..., testdb_15]
 
 DestDB:
   Name: targetDB
@@ -61,7 +62,7 @@ DestDB:
   Port: 4000
   User: root
   Password: 1234Abcd
-  DBs: [messagedb]
+  DBs: [testdb]
 ```
 - Generated Configuration Output (sync_diff.toml)
 The tool automatically produces a ready-to-use file:
@@ -91,13 +92,13 @@ user = "root"
 password = "..."
 
 [[table-config]]
-target-struct = "messagedb"
+target-struct = "testdb"
 target-table = "users"
 # Auto-ignored metadata columns from Pattern 3
 ignore-columns = ["c_source", "c_schema", "c_table"]
 # Auto-generated route rules via DeepSeek/DDL match
 source-tables = [
-    {instance-id = "instance01", source-schema = "messagedb_[0-7]", source-table = "users"},
-    {instance-id = "instance02", source-schema = "messagedb_[8-15]", source-table = "users"}
+    {instance-id = "instance01", source-schema = "testdb_[0-7]", source-table = "users"},
+    {instance-id = "instance02", source-schema = "testdb_[8-15]", source-table = "users"}
 ]
 ```

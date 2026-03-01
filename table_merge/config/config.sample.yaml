@@ -36,4 +36,5 @@ DestDB:
   Password: 0jpW_@Y453mN*h1+t9
   DBs: 
     - messagedb
+IncrementalDiffTables: ["schema.table001", "schema.table002"]
 Template: "dumpling -h ${DBHOST} -P ${DBPORT} -u ${DBUSER} -p \"${DBPASSWORD}\" --threads 1 --tables-list '{{.SrcTable}}' --output-filename-template '{{.DestTable}}' --filetype csv -o \"${DUMPLING_OUTPUT}\""

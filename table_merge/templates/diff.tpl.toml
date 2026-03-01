@@ -61,5 +61,8 @@ target-table = "{{$route.TargetTable}}"
 [table-configs.{{$key}}]
 target-tables = [{{range $i, $table := $config.TargetTables}}{{if $i}}, {{end}}"{{$table}}"{{end}}]
 ignore-columns = [{{range $i, $col := $config.IgnoreColumns}}{{if $i}}, {{end}}"{{$col}}"{{end}}]
+{{- if $config.Range }}
+range = "{{$config.Range}}"
+{{- end}}
 {{- end}}
 {{- end}}

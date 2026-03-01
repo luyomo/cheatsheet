@@ -55,7 +55,23 @@ type RouteRule struct {
 type TableConfig struct {
 	TargetTables  []string `yaml:"target-tables" json:"target_tables"`
 	IgnoreColumns []string `yaml:"ignore-columns" json:"ignore_columns"`
+	Range         string   `yaml:"range,omitempty" json:"range,omitempty"`
 }
+
+// func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
+// 	taskMapping := splitTableMapping2Tasks(tableMapping)
+// 	// Loop the map and print the contents.
+// 	for key, tables := range taskMapping {
+// 		fmt.Printf("    -------------   Key: %s\n", key)
+// 		// for _, tbl := range tables {
+// 		// 	// fmt.Printf("  SrcTableInfo: %v\n", tbl.SrcTableInfo)
+// 		// 	fmt.Printf("  DestTableInfo: %v\n", tbl.DestTableInfo)
+
+// 		// }
+// 		renderSyncDiffConfig(config, key, &tables)
+// 	}
+// 	return nil
+// }
 
 func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	if config == nil {
@@ -249,6 +265,32 @@ func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 
 		syncDiffConfig.Task.TargetConfigs = append(syncDiffConfig.Task.TargetConfigs, cfgKey)
 		idx = idx + 1
+	}
+
+	// Loop all tableInfos again and prepare TableConfigs for items with MaxID > 0
+	for _, tbl := range *tableMapping {
+		if tbl.MaxID <= 0 {
+			continue
+		}
+		if len(tbl.DestTableInfo) == 0 {
+			fmt.Printf("warning: tbl.DestTableInfo is empty for SrcTableInfo: %v\n", tbl.SrcTableInfo)
+			continue
+		}
+		destParts := strings.Split(tbl.DestTableInfo[0], ".")
+		if len(destParts) < 3 {
+			fmt.Printf("warning: dest table info %q has insufficient parts (<3) for SrcTableInfo: %v\n",
+				tbl.DestTableInfo[0], tbl.SrcTableInfo)
+			continue
+		}
+		schema := destParts[1]
+		table := destParts[2]
+
+		cfgKey := fmt.Sprintf("range_cfg_%s_%s", schema, table)
+		syncDiffConfig.TableConfigs[cfgKey] = TableConfig{
+			TargetTables: []string{schema + "." + table},
+			Range:        fmt.Sprintf("id <= %d", tbl.MaxID),
+		}
+		syncDiffConfig.Task.TargetConfigs = append(syncDiffConfig.Task.TargetConfigs, cfgKey)
 	}
 
 	// fmt.Printf("%+v\n", syncDiffConfig)
@@ -571,4 +613,19 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 	}
 
 	return nil
+}
+
+func splitTableMapping2Tasks(tableMapping *[]TableInfo) map[string][]TableInfo {
+	result := make(map[string][]TableInfo)
+	for _, ti := range *tableMapping {
+		if ti.MaxID > 0 {
+			// use dest table name as key when MaxID > 0
+			key := ti.DestTableInfo[0]
+			result[key] = append(result[key], ti)
+		} else {
+			// use default key name for the rest
+			result["default"] = append(result["default"], ti)
+		}
+	}
+	return result
 }
