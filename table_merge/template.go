@@ -58,21 +58,6 @@ type TableConfig struct {
 	Range         string   `yaml:"range,omitempty" json:"range,omitempty"`
 }
 
-// func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
-// 	taskMapping := splitTableMapping2Tasks(tableMapping)
-// 	// Loop the map and print the contents.
-// 	for key, tables := range taskMapping {
-// 		fmt.Printf("    -------------   Key: %s\n", key)
-// 		// for _, tbl := range tables {
-// 		// 	// fmt.Printf("  SrcTableInfo: %v\n", tbl.SrcTableInfo)
-// 		// 	fmt.Printf("  DestTableInfo: %v\n", tbl.DestTableInfo)
-
-// 		// }
-// 		renderSyncDiffConfig(config, key, &tables)
-// 	}
-// 	return nil
-// }
-
 func RenderSyncDiffConfig(config *Config, tableMapping *[]TableInfo) error {
 	if config == nil {
 		return fmt.Errorf("config is nil")
@@ -613,19 +598,4 @@ func RenderDMTaskConfig(config *Config, tableMapping *[]TableInfo) error {
 	}
 
 	return nil
-}
-
-func splitTableMapping2Tasks(tableMapping *[]TableInfo) map[string][]TableInfo {
-	result := make(map[string][]TableInfo)
-	for _, ti := range *tableMapping {
-		if ti.MaxID > 0 {
-			// use dest table name as key when MaxID > 0
-			key := ti.DestTableInfo[0]
-			result[key] = append(result[key], ti)
-		} else {
-			// use default key name for the rest
-			result["default"] = append(result["default"], ti)
-		}
-	}
-	return result
 }
