@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -11,7 +12,7 @@ func TestRenderSyncDiffConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	templatesDir := tmpDir + "/templates"
 	os.MkdirAll(templatesDir, 0755)
-	
+
 	// 创建必要的模板文件
 	diffTemplate := `check-thread-count = {{.CheckThreadCount}}
 export-fix-sql = {{.ExportFixSQL}}
@@ -62,23 +63,23 @@ ignore-columns = [{{range $i, $col := $value.IgnoreColumns}}{{if $i}}, {{end}}"{
 range = "{{$value.Range}}"
 {{end}}
 {{end}}`
-	
+
 	// 写入模板文件
 	diffTemplatePath := templatesDir + "/diff.tpl.toml"
 	if err := os.WriteFile(diffTemplatePath, []byte(diffTemplate), 0644); err != nil {
 		t.Fatalf("Failed to create template file: %v", err)
 	}
-	
+
 	// 由于template.go使用embed.FS，我们需要修改它来使用我们创建的模板文件
 	// 但是，我们不能直接修改template.go，所以我们需要一个不同的方法
 	// 实际上，测试应该能够运行，因为embed.FS在编译时嵌入文件
 	// 但在测试中，我们需要确保这些文件存在
 	// 由于我们不能修改embed指令，我们可能需要修改RenderSyncDiffConfig函数
 	// 但这不是测试的一部分
-	
+
 	// 相反，我们可以创建一个测试专用的函数，但这不是最佳实践
 	// 让我们先运行测试，看看会发生什么
-	
+
 	type args struct {
 		config       *Config
 		tableMapping *[]TableInfo
@@ -226,7 +227,7 @@ range = "{{$value.Range}}"
 				// 确保目录存在
 				os.MkdirAll(tt.args.config.Output, 0755)
 			}
-			
+
 			// 由于embed.FS可能无法在测试中找到模板文件，我们可能需要处理错误
 			// 运行函数并检查错误
 			err := RenderSyncDiffConfig(tt.args.config, tt.args.tableMapping)
@@ -234,7 +235,7 @@ range = "{{$value.Range}}"
 				t.Errorf("RenderSyncDiffConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			
+
 			// 如果没有错误且需要检查输出，验证文件是否生成
 			if err == nil && tt.checkOutput && tt.args.config != nil {
 				outputFile := tt.args.config.Output + "/sync-diff.toml"

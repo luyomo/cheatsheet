@@ -53,4 +53,38 @@ Export data to local:
 ```
 ./bin/dm-toolkit --src-host $SrcDBHost --src-port $SrcDBPort --src-user $SrcDBUser --src-password $SrcDBPassword --src-dbs messagedb_00,messagedb_01 --dest-host $DestDBHost --dest-port $DestDBPort --dest-user $DestDBUser --dest-password $DestDBPassword --dest-dbs messagedb --ops-type generateDumpling --template "dumpling -h \${DBHOST} -P \${DBPORT} -u \${DBUSER} -p \"\${DBPASSWORD}\" --threads 8 --tables-list '{{.SrcTable}}' --output-filename-template '{{.DestTable}}' --filetype csv -o \"\${DUMPLING_OUTPUT}\""
 ```
+## Automation Test
+### Test cases generation
+```sh
+$ go install github.com/cweill/gotests/gotests@latest 
+$ export PATH=~/go/bin:$PATH 
+$ gotests -all -w .
+```
+### aider
+```sh
+$ sudo apt install pipx
+$ pipx ensurepath
+$ pipx install aider-chat 
+$ pipx ensurepath
+$ source ~/.bashrc 
+$ export MOONSHOT_API_KEY="sk-xxxx"
+$ aider --openai-api-key $MOONSHOT_API_KEY --openai-api-base https://api.moonshot.ai/v1 --model openai/kimi-k2.5
 
+
+$ export DEEPSEEK_API_KEY="sk-xxx"
+$ aider --deepseek
+
+```
+
+
+```sh
+请为 TestRenderSyncDiffConfig 函数补全测试用例。
+使用表格驱动模式（Table-Driven Tests）。
+构造一个包含以下场景的测试用例：
+Normal: 一个源端库，一个目标端库，包含基础路由规则。
+ExcludeColumns: 设置 DestHasSource: true，验证是否正确生成了 IgnoreColumns 配置。
+RangeConfig: 设置 MaxID: 1000，验证是否生成了 Range 查询条件。
+NilConfig: 传入 config = nil，验证是否返回错误。
+由于该函数涉及文件写入 os.Create，请在测试前使用 t.TempDir() 动态设置 config.Output 路径，以防污染本地目录。
+运行 go test -v -run TestRenderSyncDiffConfig 验证，没过请自动修复。
+```
