@@ -45,10 +45,12 @@ If the migration requires Pattern 3 logic (Primary Key conflict resolution), the
 ```
 docker run --rm --network host \
   -v $(pwd)/config:/app/config \
-  emaxchou/dm-toolkit:v0.0.2 \
+  -v $(pwd)/log:/app/log \
+  emaxchou/dm-toolkit:v0.0.5 \
   --output config \
   --config config/config.yaml \
   --ops-type generateDMConfig \
+  --log-level debug \
   --llm deepseek
 ```
 If the command does not include --llm deepseek, it will skip the regret generation. Use the ---------- todo --------- in the output. After the config file is generated, you need to replace it manually.

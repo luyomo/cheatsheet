@@ -30,10 +30,12 @@ To handle online migrations where data is continuously flowing via DM:
 ```
 docker run --rm --network host \
   -v $(pwd)/config:/app/config \
-  emaxchou/dm-toolkit:v0.0.4 \
+  -v $(pwd)/log:/app/log \
+  emaxchou/dm-toolkit:v0.0.5 \
   --output config \
   --config config/config.yaml \
   --ops-type generateSyncDiffconfig \
+  --log-level debug \
   --llm deepseek
 ```
 

@@ -105,9 +105,11 @@ Run the toolkit to generate the required Dumpling scripts:
 ```
 docker run --rm --network host \
   -v $(pwd)/config:/app/config \
-  emaxchou/dm-toolkit:v0.0.2 \
+  -v $(pwd)/log:/app/log \
+  emaxchou/dm-toolkit:v0.0.5 \
   --config config/config.yaml \
   --ops-type generateDumpling \
+  --log-level debug
   --llm deepseek
 ```
 
