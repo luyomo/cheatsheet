@@ -366,9 +366,38 @@ func main() {
 	}
 
 	if opsType == "generateDumpling" {
+		// Open a single output file for all dumpling commands
+		dumplingPath := fmt.Sprintf("%s/dumpling.sh", config.Output)
+		if err := os.MkdirAll(config.Output, 0755); err != nil {
+			slog.Error("failed to create output directory", "error", err)
+			log.Fatalf("Failed to create output directory: %v", err)
+		}
+		dumplingFile, err := os.Create(dumplingPath)
+		if err != nil {
+			slog.Error("failed to create dumpling.sh", "error", err)
+			log.Fatalf("Failed to create dumpling.sh: %v", err)
+		}
+		defer dumplingFile.Close()
+
+		// Write shell header and environment-variable template to dumpling.sh
+		header := `#!/bin/bash
+
+export DBHOST=
+export DBPORT=
+export DBUSER=
+export DBPASSWORD=
+export DUMPLING_OUTPUT=
+
+`
+		if _, err := dumplingFile.WriteString(header); err != nil {
+			slog.Error("failed to write header to dumpling.sh", "error", err)
+			log.Fatalf("Failed to write header to dumpling.sh: %v", err)
+		}
+
 		slog.Info("starting generateDumpling operation",
 			"totalTableStructures", len(tableStructure),
-			"description", "generating dumpling commands for table mappings")
+			"description", "generating dumpling commands for table mappings",
+			"outputPath", dumplingPath)
 		for _, tableInfo := range tableStructure {
 			// Case 1: One-to-one mapping
 			if len(tableInfo.SrcTableInfo) == 1 && len(tableInfo.DestTableInfo) == 1 {
@@ -413,7 +442,7 @@ func main() {
 						"srcTable", srcTable,
 						"destTable", tableInfo.DestTableInfo[0],
 						"dbName", dbName)
-					// fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
+					fmt.Fprintf(dumplingFile, "%s\n", buf.String())
 				}
 			}
 
@@ -468,7 +497,7 @@ func main() {
 									"srcTable", tableInfo.SrcTableInfo[i],
 									"destTable", tableInfo.DestTableInfo[j],
 									"dbName", dbName)
-								fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
+								fmt.Fprintf(dumplingFile, "%s\n", buf.String())
 							}
 							break
 						}
@@ -525,7 +554,7 @@ func main() {
 							"destTable", destTable,
 							"dbName", dbName,
 							"consolidationIndex", idx+1)
-						fmt.Fprintf(mapWriter[dbName], "%s\n", buf.String())
+						fmt.Fprintf(dumplingFile, "%s\n", buf.String())
 					}
 				}
 				// TODO: Implement consolidation logic
@@ -1446,28 +1475,36 @@ func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
 	// Loop through tableStructure and find items whose target table is in IncrementalDiffTables
 	tablesProcessed := 0
 	queriesExecuted := 0
+	matchedIncTables := 0
+	slog.Debug("starting incremental diff table matching", "totalTableStructures", len(tableStructure), "incrementalDiffTables", config.IncrementalDiffTables)
+
 	for i := range tableStructure {
 		tableInfo := &tableStructure[i]
+		slog.Debug("checking table structure", "index", i, "destTableCount", len(tableInfo.DestTableInfo), "srcTableCount", len(tableInfo.SrcTableInfo))
+
 		for _, destTable := range tableInfo.DestTableInfo {
 			// Extract SchemaName.TableName from destTable (targetName.SchemaName.TableName)
 			destParts := strings.Split(destTable, ".")
 			if len(destParts) != 3 {
-				slog.Warn("skipping destTable with unexpected format", "destTable", destTable)
+				slog.Warn("skipping destTable with unexpected format", "destTable", destTable, "parts", len(destParts))
 				continue
 			}
 			destSchemaTable := fmt.Sprintf("%s.%s", destParts[1], destParts[2])
+			slog.Debug("extracted destSchemaTable", "destTable", destTable, "destSchemaTable", destSchemaTable)
 
 			for _, incTable := range config.IncrementalDiffTables {
+				slog.Debug("comparing with incremental diff table", "destSchemaTable", destSchemaTable, "incTable", incTable)
 				if destSchemaTable == incTable {
+					matchedIncTables++
 					tablesProcessed++
-					slog.Debug("processing incremental diff table", "destSchemaTable", destSchemaTable, "incTable", incTable)
+					slog.Info("matched incremental diff table", "destSchemaTable", destSchemaTable, "incTable", incTable, "matchedCount", matchedIncTables)
 
-					for _, srcTable := range tableInfo.SrcTableInfo {
+					for j, srcTable := range tableInfo.SrcTableInfo {
 						parts := strings.Split(srcTable, ".")
 						if len(parts) == 3 {
 							instance := parts[0]
 							schemaTable := fmt.Sprintf("%s.%s", parts[1], parts[2])
-							slog.Debug("processing source table for max ID", "instance", instance, "schemaTable", schemaTable)
+							slog.Debug("processing source table for max ID", "index", j, "srcTable", srcTable, "instance", instance, "schemaTable", schemaTable)
 
 							// Find the DB config for this instance
 							var dbConfig *DBConnInfo
@@ -1478,11 +1515,12 @@ func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
 								}
 							}
 							if dbConfig != nil {
+								slog.Debug("found DB config for instance", "instance", instance, "dbHost", dbConfig.Host, "dbPort", dbConfig.Port, "dbName", dbConfig.DBs[0])
 								// Prepare DSN and open DB connection
 								dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbConfig.User, dbConfig.Password, dbConfig.Host, dbConfig.Port, dbConfig.DBs[0])
 								db, err := sql.Open("mysql", dsn)
 								if err != nil {
-									slog.Error("failed to open DB connection for max ID query", "instance", instance, "schemaTable", schemaTable, "error", err)
+									slog.Error("failed to open DB connection for max ID query", "instance", instance, "schemaTable", schemaTable, "dsn", dsn, "error", err)
 									continue
 								}
 								// Note: defer in loop is generally discouraged, but acceptable here due to limited iteration count
@@ -1492,38 +1530,53 @@ func SetMaxID4IncreDiff(config Config, tableStructure []TableInfo) error {
 									slog.Error("failed to ping DB for max ID query", "instance", instance, "schemaTable", schemaTable, "error", err)
 									continue
 								}
+								slog.Debug("successfully connected to DB", "instance", instance, "schemaTable", schemaTable)
 
 								// Run the query: select max(id) from schemaTable
 								var maxID sql.NullInt64
 								query := fmt.Sprintf("SELECT MAX(id) FROM %s", schemaTable)
+								slog.Debug("executing max ID query", "instance", instance, "schemaTable", schemaTable, "query", query)
 								err = db.QueryRow(query).Scan(&maxID)
 								queriesExecuted++
 								if err != nil {
 									slog.Error("failed to get max id from table", "instance", instance, "schemaTable", schemaTable, "query", query, "error", err)
 									continue
 								}
+								slog.Debug("query result", "instance", instance, "schemaTable", schemaTable, "maxID.Valid", maxID.Valid, "maxID.Int64", maxID.Int64)
 								if maxID.Valid {
-									slog.Debug("retrieved max ID from source table", "instance", instance, "schemaTable", schemaTable, "maxID", maxID.Int64)
+									slog.Info("retrieved max ID from source table", "instance", instance, "schemaTable", schemaTable, "maxID", maxID.Int64)
 									if tableInfo.MaxID < maxID.Int64 {
+										oldMaxID := tableInfo.MaxID
 										tableInfo.MaxID = maxID.Int64
 										mapMaxIDs[destSchemaTable] = maxID.Int64
-										slog.Info("updated max ID for incremental diff table", "destSchemaTable", destSchemaTable, "maxID", maxID.Int64, "instance", instance, "schemaTable", schemaTable)
+										slog.Info("updated max ID for incremental diff table", "destSchemaTable", destSchemaTable, "oldMaxID", oldMaxID, "newMaxID", maxID.Int64, "instance", instance, "schemaTable", schemaTable)
+									} else {
+										slog.Debug("existing max ID is greater or equal", "destSchemaTable", destSchemaTable, "existingMaxID", tableInfo.MaxID, "newMaxID", maxID.Int64)
 									}
 								} else {
-									slog.Warn("no rows found in source table for max ID query", "instance", instance, "schemaTable", schemaTable)
+									slog.Warn("no rows found in source table for max ID query", "instance", instance, "schemaTable", schemaTable, "query", query)
 								}
 							} else {
-								slog.Warn("no DB config found for instance", "instance", instance, "destSchemaTable", destSchemaTable)
+								slog.Warn("no DB config found for instance", "instance", instance, "destSchemaTable", destSchemaTable, "availableInstances", func() []string {
+									var names []string
+									for _, db := range config.SourceDB {
+										names = append(names, db.Name)
+									}
+									return names
+								}())
 							}
 						} else {
-							slog.Warn("skipping source table with unexpected format", "srcTable", srcTable)
+							slog.Warn("skipping source table with unexpected format", "srcTable", srcTable, "parts", len(parts))
 						}
 					}
 					break
+				} else {
+					slog.Debug("destSchemaTable does not match incTable", "destSchemaTable", destSchemaTable, "incTable", incTable)
 				}
 			}
 		}
 	}
+	slog.Info("completed incremental diff table processing", "tablesProcessed", tablesProcessed, "matchedIncTables", matchedIncTables, "queriesExecuted", queriesExecuted, "mapMaxIDsSize", len(mapMaxIDs))
 
 	slog.Info("completed max ID queries", "tablesProcessed", tablesProcessed, "queriesExecuted", queriesExecuted, "maxIDsCollected", len(mapMaxIDs))
 
@@ -1578,7 +1631,22 @@ func initLog() error {
 	default:
 		level = slog.LevelInfo
 	}
-	opts := &slog.HandlerOptions{Level: level, AddSource: true}
+	opts := &slog.HandlerOptions{
+		Level:     level,
+		AddSource: true,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// Make the source path relative to the project root
+			if a.Key == "source" {
+				if src, ok := a.Value.Any().(*slog.Source); ok {
+					// Remove everything before "table_merge/" from the file path
+					if idx := strings.Index(src.File, "table_merge/"); idx != -1 {
+						src.File = src.File[idx:]
+					}
+				}
+			}
+			return a
+		},
+	}
 	logger := slog.New(slog.NewJSONHandler(logFile, opts))
 	slog.SetDefault(logger)
 	slog.Info("logger initialized", "logFile", "log/table_merge.log")
