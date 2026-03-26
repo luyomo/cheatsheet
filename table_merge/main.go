@@ -366,15 +366,21 @@ func main() {
 	}
 
 	if opsType == "generateDumpling" {
+		// Ensure config.Output is set; fallback to current directory if empty
+		outputDir := config.Output
+		if outputDir == "" {
+			outputDir = "."
+		}
+
 		// Open a single output file for all dumpling commands
-		dumplingPath := fmt.Sprintf("%s/dumpling.sh", config.Output)
-		if err := os.MkdirAll(config.Output, 0755); err != nil {
-			slog.Error("failed to create output directory", "error", err)
+		dumplingPath := fmt.Sprintf("%s/dumpling.sh", outputDir)
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			slog.Error("failed to create output directory", "error", err, "outputDir", outputDir)
 			log.Fatalf("Failed to create output directory: %v", err)
 		}
 		dumplingFile, err := os.Create(dumplingPath)
 		if err != nil {
-			slog.Error("failed to create dumpling.sh", "error", err)
+			slog.Error("failed to create dumpling.sh", "error", err, "dumplingPath", dumplingPath)
 			log.Fatalf("Failed to create dumpling.sh: %v", err)
 		}
 		defer dumplingFile.Close()
@@ -442,7 +448,9 @@ export DUMPLING_OUTPUT=
 						"srcTable", srcTable,
 						"destTable", tableInfo.DestTableInfo[0],
 						"dbName", dbName)
-					fmt.Fprintf(dumplingFile, "%s\n", buf.String())
+					if _, werr := fmt.Fprintf(dumplingFile, "%s\n", buf.String()); werr != nil {
+						slog.Error("failed to write dumpling command to file", "error", werr, "dumplingPath", dumplingPath)
+					}
 				}
 			}
 
@@ -497,7 +505,9 @@ export DUMPLING_OUTPUT=
 									"srcTable", tableInfo.SrcTableInfo[i],
 									"destTable", tableInfo.DestTableInfo[j],
 									"dbName", dbName)
-								fmt.Fprintf(dumplingFile, "%s\n", buf.String())
+								if _, werr := fmt.Fprintf(dumplingFile, "%s\n", buf.String()); werr != nil {
+									slog.Error("failed to write dumpling command to file", "error", werr, "dumplingPath", dumplingPath)
+								}
 							}
 							break
 						}
@@ -554,13 +564,24 @@ export DUMPLING_OUTPUT=
 							"destTable", destTable,
 							"dbName", dbName,
 							"consolidationIndex", idx+1)
-						fmt.Fprintf(dumplingFile, "%s\n", buf.String())
+						if _, werr := fmt.Fprintf(dumplingFile, "%s\n", buf.String()); werr != nil {
+							slog.Error("failed to write dumpling command to file", "error", werr, "dumplingPath", dumplingPath)
+						}
 					}
 				}
 				// TODO: Implement consolidation logic
 			}
 		}
-		slog.Info("generateDumpling operation finished")
+
+		// Explicitly flush and close the file to ensure all data is written
+		if err := dumplingFile.Sync(); err != nil {
+			slog.Error("failed to sync dumpling.sh to disk", "error", err, "dumplingPath", dumplingPath)
+		}
+		if err := dumplingFile.Close(); err != nil {
+			slog.Error("failed to close dumpling.sh", "error", err, "dumplingPath", dumplingPath)
+		}
+
+		slog.Info("generateDumpling operation finished", "dumplingPath", dumplingPath)
 	}
 
 	// Generate the regex for table consolidations
