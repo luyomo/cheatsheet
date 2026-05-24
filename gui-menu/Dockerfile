@@ -17,7 +17,11 @@ RUN CGO_ENABLED=0 go build -o bin/start-menu-service ./cmd/main.go
 # --- Stage 2: Final ultra-lightweight runtime ---
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates curl
+
+RUN mkdir -p /etc/ssl/certs/custom
+
+RUN curl -sL https://letsencrypt.org/certs/isrgrootx1.pem -o /etc/ssl/certs/custom/isrgrootx1.pem
 
 WORKDIR /app
 
