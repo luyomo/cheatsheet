@@ -1,0 +1,7 @@
+database:
+  host: hostname
+  port: 4000
+  user: user
+  password: password
+  dbname: webmasterdb
+  usetls: true
