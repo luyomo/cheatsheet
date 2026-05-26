@@ -16,7 +16,7 @@ import (
 type Config struct {
     Database struct {
         Host     string `yaml:"host"`
-        Port     int    `yaml:"port"` 
+        Port     int    `yaml:"port"`
         User     string `yaml:"user"`
         Password string `yaml:"password"`
         DBName   string `yaml:"dbname"`
@@ -61,13 +61,14 @@ func main() {
 
     r.GET("/api/master/v1/menu", func(c *gin.Context) {
         user   := c.Query("user")
-        app    := c.Query("app" )
-        module := c.Query("module")
+        app    := c.Request.Host
+        module := c.Query("module" )
 
         if module == "" {
             module = "main"
         }
 
+        // fmt.Printf("[DEBUG] App: %s | Module: %s | Email/User: %s\n", app, module, user)
         ret, err := fetchMenuItems(db, app, module, user)
         if err != nil {
             fmt.Printf("Error: %#v\n", err)
@@ -174,7 +175,7 @@ func fetchMenuItems(db db.Database, app, module, user string) ([]byte , error) {
 
 		if err = rows.Scan(&row.ID, &row.ParentMenuId, &row.Path, &row.Name, &row.Component, &componentParams); err!= nil {
             return nil, err
-        }            
+        }
 
 		// fmt.Printf("The row: %#v \n", row)
 
