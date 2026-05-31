@@ -1,5 +1,5 @@
 # --- Stage 1: Build the Go binary ---
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25 AS builder
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ RUN curl -sL https://letsencrypt.org/certs/isrgrootx1.pem -o /etc/ssl/certs/cust
 WORKDIR /app
 
 # Copy the compiled binary from the builder stage
-COPY --from=builder /app/bin/start-menu-service ./bin/start-menu-service
+COPY --from=builder /app/bin/start-menu-service /usr/local/bin/start-menu-service
 
 # Expose the port Gin is listening on
 EXPOSE 8082
@@ -35,4 +35,4 @@ EXPOSE 8082
 ENV GIN_MODE=release
 
 # Command to run the application
-CMD ["./bin/start-menu-service"]
+CMD ["/usr/local/bin/start-menu-service"]
