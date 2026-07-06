@@ -223,7 +223,7 @@ Show task status
 SHOW TASKS;
 
 -- Show task execution history
-SELECT * FROM TABLE(TASK_HISTORY()) ORDER BY scheduled_time DESC LIMIT 20;
+SELECT * FROM TASK_HISTORY() order by scheduled_time;
 
 -- Suspend tasks (stop the root task first, then the downstream task)
 ALTER TASK task_load_cdc_raw SUSPEND;
